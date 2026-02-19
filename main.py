@@ -2352,6 +2352,14 @@ class TicketView(discord.ui.View):
 
         return f"{prefixo}-{total + 1}"
 
+    async def obter_ou_criar_categoria_middle(self, guild):
+        nome_categoria = "middle man"
+        for categoria in guild.categories:
+            if categoria.name.strip().lower() == nome_categoria:
+                return categoria
+
+        return await guild.create_category(nome_categoria)
+
     async def criar_ticket_middleman_pix(self, interaction):
         numero_ticket = self.proximo_numero_ticket_pix(interaction.guild)
 
@@ -2362,7 +2370,8 @@ class TicketView(discord.ui.View):
 
         canal = await interaction.guild.create_text_channel(
             name=f"🔃-ticket-{numero_ticket}",
-            overwrites=overwrites
+            overwrites=overwrites,
+            category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "pix")
         aviso = discord.Embed(
@@ -2421,7 +2430,8 @@ class TicketView(discord.ui.View):
 
         canal = await interaction.guild.create_text_channel(
             name=nome_canal,
-            overwrites=overwrites
+            overwrites=overwrites,
+            category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "brainrot")
 
@@ -2482,7 +2492,8 @@ class TicketView(discord.ui.View):
 
         canal = await interaction.guild.create_text_channel(
             name=nome_canal,
-            overwrites=overwrites
+            overwrites=overwrites,
+            category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "trade")
 
