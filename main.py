@@ -1680,6 +1680,13 @@ class BrainrotNomeView(discord.ui.View):
 
 
 # ---------- MIDDLEMAN ACCEPT ----------
+class IrParaTicketView(discord.ui.View):
+    def __init__(self, canal):
+        super().__init__(timeout=300)
+        url = f"https://discord.com/channels/{canal.guild.id}/{canal.id}"
+        self.add_item(discord.ui.Button(label="Ir para o ticket", style=discord.ButtonStyle.link, url=url))
+
+
 class MiddlemanAcceptView(discord.ui.View):
     def __init__(self, canal, comprador, vendedor):
         super().__init__(timeout=None)
@@ -1698,12 +1705,28 @@ class MiddlemanAcceptView(discord.ui.View):
             await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
             return
 
+        middle_existente = ticket_middleman.get(self.canal.id)
+        if middle_existente is not None:
+            membro_existente = interaction.guild.get_member(int(middle_existente))
+            if membro_existente:
+                await interaction.response.send_message(
+                    f"Este ticket já foi aceito por {membro_existente.mention}.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+            else:
+                await interaction.response.send_message(
+                    "Este ticket já foi aceito por outro Middle.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+            return
+
+        # Reserva o ticket para este middle antes de qualquer await adicional.
+        salvar_middleman_ticket(self.canal.id, interaction.user.id)
         await interaction.response.defer(ephemeral=True)
 
         await self.canal.set_permissions(interaction.user, view_channel=True)
-
-        # salva o middle no canal
-        salvar_middleman_ticket(self.canal.id, interaction.user.id)
 
         # remove mensagem de loading
         msg_loading = ticket_loading_msg.pop(self.canal.id, None)
@@ -1725,8 +1748,15 @@ class MiddlemanAcceptView(discord.ui.View):
         embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
         await self.canal.send(embed=embed_middle)
 
-        await interaction.followup.send("Ticket assumido.", ephemeral=True)
-        await interaction.message.delete()
+        await interaction.followup.send(
+            "✅ Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
+            ephemeral=True,
+            view=IrParaTicketView(self.canal)
+        )
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
 
         iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
         view_valor = ValorView(self.canal, self.vendedor, self.comprador)
@@ -1978,9 +2008,27 @@ class MiddlemanAcceptTradeView(discord.ui.View):
             await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
             return
 
+        middle_existente = ticket_middleman.get(self.canal.id)
+        if middle_existente is not None:
+            membro_existente = interaction.guild.get_member(int(middle_existente))
+            if membro_existente:
+                await interaction.response.send_message(
+                    f"Este ticket já foi aceito por {membro_existente.mention}.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+            else:
+                await interaction.response.send_message(
+                    "Este ticket já foi aceito por outro Middle.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+            return
+
+        # Reserva o ticket para este middle antes de qualquer await adicional.
+        salvar_middleman_ticket(self.canal.id, interaction.user.id)
         await interaction.response.defer(ephemeral=True)
         await self.canal.set_permissions(interaction.user, view_channel=True)
-        salvar_middleman_ticket(self.canal.id, interaction.user.id)
 
         msg_loading = ticket_loading_msg.pop(self.canal.id, None)
         if msg_loading:
@@ -1999,8 +2047,15 @@ class MiddlemanAcceptTradeView(discord.ui.View):
         )
         embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
         await self.canal.send(embed=embed_middle)
-        await interaction.followup.send("Ticket assumido.", ephemeral=True)
-        await interaction.message.delete()
+        await interaction.followup.send(
+            "✅ Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
+            ephemeral=True,
+            view=IrParaTicketView(self.canal)
+        )
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
 
         await self.canal.send(
             "Qual a taxa da trade? (Pix ou Brainrot)",
