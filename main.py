@@ -870,8 +870,6 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💰 Pagamento total (item + taxa)",
             description=(
                 f"Titular: {pix_nome}\n"
-                f"Chave Pix: `{pix_key}`\n"
-                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
                 f"Valor do item: R$ {valor:.2f}\n"
                 f"Taxa MM: R$ {taxa:.2f}\n"
                 f"Total: R$ {total:.2f}"
@@ -880,6 +878,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_qr.set_image(url="attachment://pix_total.png")
         await canal.send(embed=embed_qr, file=file)
+        await canal.send(
+            "📋 Código Pix copia e cola:",
+            view=PixCopiaColaView(pix_copia_cola)
+        )
         await canal.send(
             "⏳ Aguardando pagamento...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor)
@@ -899,14 +901,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="🛒 QR do comprador (valor do item)",
             description=(
                 f"Titular: {pix_nome}\n"
-                f"Chave Pix: `{pix_key}`\n"
-                f"Pix copia e cola:\n`{pix_copia_cola_item}`\n"
                 f"Valor: R$ {valor:.2f}"
             ),
             color=discord.Color.blue()
         )
         embed_item.set_image(url="attachment://pix_item.png")
         await canal.send(embed=embed_item, file=file_item)
+        await canal.send(
+            "📋 Código Pix copia e cola (item):",
+            view=PixCopiaColaView(pix_copia_cola_item)
+        )
 
         qr_taxa = gerar_qrcode_pix(pix_key, taxa)
         pix_copia_cola_taxa = gerar_payload_pix(pix_key, valor=f"{taxa:.2f}")
@@ -915,14 +919,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💸 QR do vendedor (taxa do middle)",
             description=(
                 f"Titular: {pix_nome}\n"
-                f"Chave Pix: `{pix_key}`\n"
-                f"Pix copia e cola:\n`{pix_copia_cola_taxa}`\n"
                 f"Taxa: R$ {taxa:.2f}"
             ),
             color=discord.Color.orange()
         )
         embed_taxa.set_image(url="attachment://pix_taxa.png")
         await canal.send(embed=embed_taxa, file=file_taxa)
+        await canal.send(
+            "📋 Código Pix copia e cola (taxa):",
+            view=PixCopiaColaView(pix_copia_cola_taxa)
+        )
 
         await canal.send(
             "⏳ Aguardando pagamento...",
@@ -942,14 +948,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💰 Pagamento do item (após taxa em Brainrot)",
             description=(
                 f"Titular: {pix_nome}\n"
-                f"Chave Pix: `{pix_key}`\n"
-                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
                 f"Valor confirmado: R$ {valor:.2f}"
             ),
             color=discord.Color.green()
         )
         embed_qr.set_image(url="attachment://pix_item_brainrot.png")
         await canal.send(embed=embed_qr, file=file)
+        await canal.send(
+            "📋 Código Pix copia e cola:",
+            view=PixCopiaColaView(pix_copia_cola)
+        )
         await canal.send(
             "⏳ Aguardando pagamento do comprador...",
             view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor)
@@ -968,14 +976,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="Cobrança Pix da Trade",
             description=(
                 f"Titular: {pix_nome}\n"
-                f"Chave Pix: `{pix_key}`\n"
-                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
                 f"Valor: R$ {valor:.2f}"
             ),
             color=discord.Color.green()
         )
         embed.set_image(url="attachment://trade_pix.png")
         await canal.send(embed=embed, file=file)
+        await canal.send(
+            "📋 Código Pix copia e cola:",
+            view=PixCopiaColaView(pix_copia_cola)
+        )
         await canal.send(
             "Aguardando confirmação de pagamento...",
             view=ConfirmarPagamentoTradePixView(canal, pessoa1, pessoa2, middle_id)
@@ -1024,6 +1034,19 @@ class ReenviarQrPixView(discord.ui.View):
             pass
 
         await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
+
+
+class PixCopiaColaView(discord.ui.View):
+    def __init__(self, payload):
+        super().__init__(timeout=None)
+        self.payload = payload
+
+    @discord.ui.button(label="📋 Copiar código Pix", style=discord.ButtonStyle.secondary)
+    async def copiar_codigo(self, interaction, button):
+        await interaction.response.send_message(
+            f"`{self.payload}`",
+            ephemeral=True
+        )
 
 
 # ---------- TAXA VIEW ----------
@@ -2663,8 +2686,6 @@ async def cobrar(interaction: discord.Interaction, valor: float):
         title="Cobrança Pix",
         description=(
             f"Titular: {pix_nome}\n"
-            f"Chave Pix: `{pix_key}`\n"
-            f"Pix copia e cola:\n`{pix_copia_cola}`\n"
             f"Responsável: {interaction.user.mention}\n"
             f"Valor: R$ {valor:.2f}"
         ),
@@ -2673,6 +2694,10 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     embed.set_image(url="attachment://cobranca_pix.png")
 
     await interaction.response.send_message(embed=embed, file=file)
+    await interaction.followup.send(
+        "📋 Código Pix copia e cola:",
+        view=PixCopiaColaView(pix_copia_cola)
+    )
 
 
 token = os.getenv("DISCORD_TOKEN")
