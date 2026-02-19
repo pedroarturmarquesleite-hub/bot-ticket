@@ -2324,7 +2324,7 @@ class TicketView(discord.ui.View):
         )
 
         view = TradeSetupView(canal, interaction.user)
-        msg = await canal.send("> Você vai **PAGAR** dinheiro ou **RECEBER** o dinheiro", view=view)
+        msg = await canal.send("> Você vai **PAGAR** ou **RECEBER** o dinheiro", view=view)
         view.message = msg
 
         embed = discord.Embed(
