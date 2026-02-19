@@ -884,7 +884,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             view=PixCopiaColaView(pix_copia_cola)
         )
         await canal.send(
-            "⏳ Aguardando pagamento...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor)
         )
         return True, None
@@ -934,7 +934,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
 
         await canal.send(
-            "⏳ Aguardando pagamento...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor)
         )
         return True, None
@@ -1194,7 +1194,7 @@ class ConfirmarPagamentoView(discord.ui.View):
         await interaction.message.delete()
 
         await self.canal.send(
-            f"📦 {self.comprador.mention}, confirme que recebeu o item:",
+            f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
         )
 
@@ -1273,7 +1273,7 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
         await interaction.message.delete()
 
         await self.canal.send(
-            f"📦 {self.comprador.mention}, confirme que recebeu o item:",
+            f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
         )
 
@@ -1284,7 +1284,7 @@ class ConfirmarEntregaView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="📦 Recebi o item", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="📦 Recebi o Brainrot", style=discord.ButtonStyle.green)
     async def confirmar_item(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_item", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1299,7 +1299,7 @@ class ConfirmarEntregaView(discord.ui.View):
         await interaction.message.delete()
 
         await self.canal.send(
-            f"{self.vendedor.mention}, envie sua chave Pix:",
+            f"{self.vendedor.mention}, envie sua chave Pix para que o Middle Man possa enviar o pix do Brainrot",
             view=EnviarPixView(self.canal, self.vendedor)
         )
 
@@ -1316,7 +1316,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
         chave = self.chave.value
 
         await self.canal.send(
-            f"💳 Pix do vendedor:\n`{chave}`",
+            f"💳 Pix do vendedor: \n*Apenas confirme o pagamento quando o Middle Man enviar o seu pix* \n`{chave}`",
             view=ConfirmarRecebimentoView(self.canal, self.vendedor)
         )
 
@@ -1455,8 +1455,8 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor)
 
     descricao = (
-        f"**Brainrot informado pelo comprador:** `{brainrot_nome}`\n"
-        f"**Valor informado pelo vendedor:** R$ {valor:.2f}\n"
+        f"**Brainrot informado por {comprador.mention}:** `{brainrot_nome}`\n"
+        f"**Valor informado por {vendedor.mention}:** R$ {valor:.2f}\n"
     )
     if ticket_kind != "brainrot":
         descricao += (
@@ -1489,6 +1489,14 @@ class ConfirmarNegociacaoView(discord.ui.View):
         self.valor = valor
         self.valor_confirmado = False
         self.brainrot_confirmado = False
+        self.confirmar_valor.label = f"{self._nome_curto(self.comprador)} confirma valor"
+        self.confirmar_brainrot.label = f"{self._nome_curto(self.vendedor)} confirma brainrot"
+
+    def _nome_curto(self, membro, limite=18):
+        nome = (membro.display_name or membro.name).strip()
+        if len(nome) <= limite:
+            return nome
+        return nome[:limite - 3] + "..."
 
     async def _seguir_fluxo(self, interaction):
         if not (self.valor_confirmado and self.brainrot_confirmado):
@@ -1512,7 +1520,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
             )
         else:
             await self.canal.send(
-                "💸 Quem irá pagar a taxa?",
+                f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
                 view=TaxaView(self.valor, self.comprador, self.vendedor)
             )
         self.stop()
@@ -1726,7 +1734,7 @@ class MiddlemanAcceptView(discord.ui.View):
         view_valor.msg = msg
         view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
         msg_brainrot = await self.canal.send(
-            f"{self.comprador.mention} **informe qual brainrot você vai negociar:**",
+            f"{self.comprador.mention} **informe qual o nome brainrot você vai negociar:**",
             view=view_brainrot
         )
         view_brainrot.msg = msg_brainrot
