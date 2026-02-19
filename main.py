@@ -1,6 +1,12 @@
 ﻿import discord
 from discord import app_commands
-from payments.pix import set_pix, gerar_qrcode_pix, get_pix_data, validar_chave_pix
+from payments.pix import (
+    set_pix,
+    gerar_qrcode_pix,
+    gerar_payload_pix,
+    get_pix_data,
+    validar_chave_pix,
+)
 import re
 import json
 import os
@@ -17,6 +23,7 @@ ticket_parties = {}
 ticket_trade_parties = {}
 ticket_loading_msg = {}
 ticket_type = {}
+ticket_negociacao = {}
 APP_DATA_DIR = os.getenv("APP_DATA_DIR", os.getcwd())
 os.makedirs(APP_DATA_DIR, exist_ok=True)
 PANEL_CONFIG_FILE = os.path.join(APP_DATA_DIR, "panel_config.json")
@@ -298,6 +305,7 @@ def remover_estado_ticket(canal_id):
     ticket_trade_parties.pop(canal_id, None)
     ticket_loading_msg.pop(canal_id, None)
     ticket_type.pop(canal_id, None)
+    ticket_negociacao.pop(canal_id, None)
     salvar_estado_tickets()
 
 
@@ -727,12 +735,19 @@ class botd(discord.Client):
                 return
 
             await canal.set_permissions(middle, view_channel=True)
+            iniciar_negociacao_ticket(canal.id, comprador, vendedor)
             view_valor = ValorView(canal, vendedor, comprador)
             msg = await canal.send(
                 f"🔄 Bot reiniciado. {vendedor.mention}, informe o valor para continuar:",
                 view=view_valor
             )
             view_valor.msg = msg
+            view_brainrot = BrainrotNomeView(canal, comprador, vendedor)
+            msg_brainrot = await canal.send(
+                f"🔄 Bot reiniciado. {comprador.mention}, informe qual brainrot será vendido:",
+                view=view_brainrot
+            )
+            view_brainrot.msg = msg_brainrot
             return
 
         if kind == "trade":
@@ -849,12 +864,14 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         total = valor + taxa
 
         qr = gerar_qrcode_pix(pix_key, total)
+        pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{total:.2f}")
         file = discord.File(fp=qr, filename="pix_total.png")
         embed_qr = discord.Embed(
             title="💰 Pagamento total (item + taxa)",
             description=(
                 f"Titular: {pix_nome}\n"
                 f"Chave Pix: `{pix_key}`\n"
+                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
                 f"Valor do item: R$ {valor:.2f}\n"
                 f"Taxa MM: R$ {taxa:.2f}\n"
                 f"Total: R$ {total:.2f}"
@@ -876,20 +893,32 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         vendedor = dados["vendedor"]
 
         qr_item = gerar_qrcode_pix(pix_key, valor)
+        pix_copia_cola_item = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
         file_item = discord.File(fp=qr_item, filename="pix_item.png")
         embed_item = discord.Embed(
             title="🛒 QR do comprador (valor do item)",
-            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor: R$ {valor:.2f}"),
+            description=(
+                f"Titular: {pix_nome}\n"
+                f"Chave Pix: `{pix_key}`\n"
+                f"Pix copia e cola:\n`{pix_copia_cola_item}`\n"
+                f"Valor: R$ {valor:.2f}"
+            ),
             color=discord.Color.blue()
         )
         embed_item.set_image(url="attachment://pix_item.png")
         await canal.send(embed=embed_item, file=file_item)
 
         qr_taxa = gerar_qrcode_pix(pix_key, taxa)
+        pix_copia_cola_taxa = gerar_payload_pix(pix_key, valor=f"{taxa:.2f}")
         file_taxa = discord.File(fp=qr_taxa, filename="pix_taxa.png")
         embed_taxa = discord.Embed(
             title="💸 QR do vendedor (taxa do middle)",
-            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nTaxa: R$ {taxa:.2f}"),
+            description=(
+                f"Titular: {pix_nome}\n"
+                f"Chave Pix: `{pix_key}`\n"
+                f"Pix copia e cola:\n`{pix_copia_cola_taxa}`\n"
+                f"Taxa: R$ {taxa:.2f}"
+            ),
             color=discord.Color.orange()
         )
         embed_taxa.set_image(url="attachment://pix_taxa.png")
@@ -907,10 +936,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         vendedor = dados["vendedor"]
 
         qr = gerar_qrcode_pix(pix_key, valor)
+        pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
         file = discord.File(fp=qr, filename="pix_item_brainrot.png")
         embed_qr = discord.Embed(
             title="💰 Pagamento do item (após taxa em Brainrot)",
-            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor confirmado: R$ {valor:.2f}"),
+            description=(
+                f"Titular: {pix_nome}\n"
+                f"Chave Pix: `{pix_key}`\n"
+                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
+                f"Valor confirmado: R$ {valor:.2f}"
+            ),
             color=discord.Color.green()
         )
         embed_qr.set_image(url="attachment://pix_item_brainrot.png")
@@ -927,10 +962,16 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         pessoa2 = dados["pessoa2"]
 
         qr = gerar_qrcode_pix(pix_key, valor)
+        pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
         file = discord.File(fp=qr, filename="trade_pix.png")
         embed = discord.Embed(
             title="Cobrança Pix da Trade",
-            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor: R$ {valor:.2f}"),
+            description=(
+                f"Titular: {pix_nome}\n"
+                f"Chave Pix: `{pix_key}`\n"
+                f"Pix copia e cola:\n`{pix_copia_cola}`\n"
+                f"Valor: R$ {valor:.2f}"
+            ),
             color=discord.Color.green()
         )
         embed.set_image(url="attachment://trade_pix.png")
@@ -1348,70 +1389,144 @@ class FecharTicketView(discord.ui.View):
         # deleta canal
         await self.canal.delete()
 
-# ---------- CONFIRMAR VALOR ----------
-class ConfirmarValorView(discord.ui.View):
-    def __init__(self, comprador, valor):
+# ---------- NEGOCIAÇÃO INICIAL (PIX/BRAINROT) ----------
+def iniciar_negociacao_ticket(canal_id, comprador, vendedor):
+    ticket_negociacao[canal_id] = {
+        "comprador_id": comprador.id if hasattr(comprador, "id") else _id_int(comprador),
+        "vendedor_id": vendedor.id if hasattr(vendedor, "id") else _id_int(vendedor),
+        "valor": None,
+        "brainrot_nome": None,
+        "confirm_msg_id": None
+    }
+
+
+def _estado_negociacao(canal_id):
+    estado = ticket_negociacao.get(canal_id)
+    if not isinstance(estado, dict):
+        return None
+    return estado
+
+
+async def tentar_publicar_confirmacao_negociacao(canal):
+    estado = _estado_negociacao(canal.id)
+    if not estado or estado.get("confirm_msg_id"):
+        return
+    if estado.get("valor") is None or not estado.get("brainrot_nome"):
+        return
+
+    parties = obter_partes_ticket(canal)
+    if not parties:
+        await canal.send("Não foi possível recuperar comprador/vendedor deste ticket.")
+        return
+
+    comprador = parties["comprador"]
+    vendedor = parties["vendedor"]
+    valor = float(estado["valor"])
+    brainrot_nome = estado["brainrot_nome"]
+    ticket_kind = ticket_type.get(canal.id, "pix")
+    taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor)
+
+    descricao = (
+        f"**Brainrot informado pelo comprador:** `{brainrot_nome}`\n"
+        f"**Valor informado pelo vendedor:** R$ {valor:.2f}\n"
+    )
+    if ticket_kind != "brainrot":
+        descricao += (
+            f"**Taxa estimada:** R$ {taxa:.2f}\n"
+            f"**Total estimado:** R$ {valor + taxa:.2f}\n"
+        )
+    descricao += (
+        f"\n{comprador.mention}, confirme o valor.\n"
+        f"{vendedor.mention}, confirme o brainrot."
+    )
+
+    embed = discord.Embed(
+        title="Confirmação da negociação",
+        description=descricao,
+        color=discord.Color.gold()
+    )
+    msg = await canal.send(
+        embed=embed,
+        view=ConfirmarNegociacaoView(canal, comprador, vendedor, valor)
+    )
+    estado["confirm_msg_id"] = msg.id
+
+
+class ConfirmarNegociacaoView(discord.ui.View):
+    def __init__(self, canal, comprador, vendedor, valor):
         super().__init__(timeout=None)
+        self.canal = canal
         self.comprador = comprador
+        self.vendedor = vendedor
         self.valor = valor
+        self.valor_confirmado = False
+        self.brainrot_confirmado = False
 
-    @discord.ui.button(label="Confirmar valor", style=discord.ButtonStyle.green)
-    async def confirmar(self, interaction, button):
-        if await em_cooldown(interaction, "confirmar_valor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+    async def _seguir_fluxo(self, interaction):
+        if not (self.valor_confirmado and self.brainrot_confirmado):
             return
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
 
-        if interaction.user != self.comprador:
-            await interaction.response.send_message(
-                "Somente comprador confirma.",
-                ephemeral=True, delete_after=60
-            )
-            return
-
-        await interaction.response.send_message("Valor confirmado.", ephemeral=True, delete_after=60)
-
-        parties = obter_partes_ticket(interaction.channel)
-        if not parties:
-            await interaction.channel.send(
-                "Não foi possível recuperar comprador/vendedor deste ticket. Reabra o ticket para continuar."
-            )
-            return
-        ticket_kind = ticket_type.get(interaction.channel.id, "pix")
-
+        ticket_kind = ticket_type.get(self.canal.id, "pix")
         if ticket_kind == "brainrot":
-            await interaction.channel.send(
+            await self.canal.send(
                 "Enviem o servidor/brainrot da taxa para o Middle.\n"
                 "Quando receber, o Middle confirma abaixo:",
                 view=ConfirmarTaxaBrainrotView(
-                    interaction.channel,
+                    self.canal,
                     self.valor,
-                    parties["comprador"],
-                    parties["vendedor"]
+                    self.comprador,
+                    self.vendedor
                 )
             )
-            self.stop()
-            return
-
-        await interaction.channel.send(
-            "💸 Quem irá pagar a taxa?",
-             view=TaxaView(
-                self.valor,
-                parties["comprador"],
-                parties["vendedor"]
+        else:
+            await self.canal.send(
+                "💸 Quem irá pagar a taxa?",
+                view=TaxaView(self.valor, self.comprador, self.vendedor)
             )
-        )
-
         self.stop()
 
+    @discord.ui.button(label="Comprador confirma valor", style=discord.ButtonStyle.green)
+    async def confirmar_valor(self, interaction, button):
+        if await em_cooldown(interaction, "confirmar_valor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+        if interaction.user != self.comprador:
+            await interaction.response.send_message(
+                "Somente o comprador confirma o valor.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        self.valor_confirmado = True
+        await interaction.response.send_message("Valor confirmado.", ephemeral=True, delete_after=60)
+        await self._seguir_fluxo(interaction)
 
-# ---------- MODAL VALOR ----------
+    @discord.ui.button(label="Vendedor confirma brainrot", style=discord.ButtonStyle.blurple)
+    async def confirmar_brainrot(self, interaction, button):
+        if await em_cooldown(interaction, "confirmar_brainrot", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+        if interaction.user != self.vendedor:
+            await interaction.response.send_message(
+                "Somente o vendedor confirma o brainrot.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        self.brainrot_confirmado = True
+        await interaction.response.send_message("Brainrot confirmado.", ephemeral=True, delete_after=60)
+        await self._seguir_fluxo(interaction)
+
+
 class ValorModal(discord.ui.Modal, title="Valor da negociação"):
     valor = discord.ui.TextInput(label="Digite o valor")
 
-    def __init__(self, canal, mensagem, comprador):
+    def __init__(self, canal, mensagem, comprador, vendedor):
         super().__init__()
         self.canal = canal
         self.mensagem = mensagem
         self.comprador = comprador
+        self.vendedor = vendedor
 
     async def on_submit(self, interaction):
         try:
@@ -1430,45 +1545,26 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
             )
             return
 
-        if valor > VALOR_MAXIMO_OPERACAO:
-            await interaction.response.send_message(
-                f"Valor muito alto. Limite permitido: R$ {VALOR_MAXIMO_OPERACAO:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                ephemeral=True, delete_after=60
-            )
-            return
-
-        ticket_kind = ticket_type.get(self.canal.id, "pix")
-        taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor)
+        estado = _estado_negociacao(self.canal.id)
+        if not estado:
+            iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
+            estado = _estado_negociacao(self.canal.id)
+        estado["valor"] = valor
+        estado["confirm_msg_id"] = None
 
         try:
             await self.mensagem.delete()
-        except:
+        except Exception:
             pass
 
-
-        if ticket_kind == "brainrot":
-            await self.canal.send(
-                f"Valor: R$ {valor:.2f}\n"
-                f"{self.comprador.mention} **Confirme se o valor da compra está certo**",
-                view=ConfirmarValorView(self.comprador, valor)
-            )
-        else:
-            await self.canal.send(
-                f"Valor: R$ {valor:.2f}\n"
-                f"Taxa: R$ {taxa:.2f}\n"
-                f"Total: R$ {valor + taxa:.2f}\n"
-                f"{self.comprador.mention} **Confirme se o valor da compra está certo**",
-                view=ConfirmarValorView(self.comprador, valor)
-            )
-
-
+        await self.canal.send(
+            f"✅ Valor registrado: R$ {valor:.2f}\n"
+            f"Aguardando o comprador informar o brainrot."
+        )
+        await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
 
 
-
-
-
-# ---------- VIEW INFORMAR VALOR ----------
 class ValorView(discord.ui.View):
     def __init__(self, canal, vendedor, comprador):
         super().__init__(timeout=None)
@@ -1485,9 +1581,65 @@ class ValorView(discord.ui.View):
                 ephemeral=True, delete_after=60
             )
             return
-
         await interaction.response.send_modal(
-            ValorModal(self.canal, self.msg, self.comprador)
+            ValorModal(self.canal, self.msg, self.comprador, self.vendedor)
+        )
+
+
+class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
+    brainrot_nome = discord.ui.TextInput(label="Qual brainrot será vendido?", max_length=120)
+
+    def __init__(self, canal, mensagem, comprador, vendedor):
+        super().__init__()
+        self.canal = canal
+        self.mensagem = mensagem
+        self.comprador = comprador
+        self.vendedor = vendedor
+
+    async def on_submit(self, interaction):
+        nome = self.brainrot_nome.value.strip()
+        if not nome:
+            await interaction.response.send_message("Informe um nome de brainrot válido.", ephemeral=True, delete_after=60)
+            return
+
+        estado = _estado_negociacao(self.canal.id)
+        if not estado:
+            iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
+            estado = _estado_negociacao(self.canal.id)
+        estado["brainrot_nome"] = nome
+        estado["confirm_msg_id"] = None
+
+        try:
+            await self.mensagem.delete()
+        except Exception:
+            pass
+
+        await self.canal.send(
+            f"✅ Brainrot registrado: `{nome}`\n"
+            f"Aguardando o vendedor informar o valor."
+        )
+        await tentar_publicar_confirmacao_negociacao(self.canal)
+        await interaction.response.send_message("Brainrot salvo.", ephemeral=True, delete_after=60)
+
+
+class BrainrotNomeView(discord.ui.View):
+    def __init__(self, canal, comprador, vendedor):
+        super().__init__(timeout=None)
+        self.canal = canal
+        self.comprador = comprador
+        self.vendedor = vendedor
+        self.msg = None
+
+    @discord.ui.button(label="Informar brainrot", style=discord.ButtonStyle.blurple)
+    async def informar_brainrot(self, interaction, button):
+        if interaction.user != self.comprador:
+            await interaction.response.send_message(
+                "Somente o comprador pode informar o brainrot.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        await interaction.response.send_modal(
+            BrainrotNomeModal(self.canal, self.msg, self.comprador, self.vendedor)
         )
 
 
@@ -1540,9 +1692,16 @@ class MiddlemanAcceptView(discord.ui.View):
         await interaction.followup.send("Ticket assumido.", ephemeral=True)
         await interaction.message.delete()
 
+        iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
         view_valor = ValorView(self.canal, self.vendedor, self.comprador)
         msg = await self.canal.send(f"{self.vendedor.mention} **informe o valor que irá vender o BrainRot:**", view=view_valor)
         view_valor.msg = msg
+        view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
+        msg_brainrot = await self.canal.send(
+            f"{self.comprador.mention} **informe qual brainrot você vai negociar:**",
+            view=view_brainrot
+        )
+        view_brainrot.msg = msg_brainrot
 
 
 # ---------- CONFIGURAÇÃO TRADE ----------
@@ -1941,7 +2100,7 @@ class TradeSetupView(discord.ui.View):
             )
 
     # -------- botão comprador --------
-    @discord.ui.button(label="Vou Pagar", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="Vou Pagar/Comprador", style=discord.ButtonStyle.blurple)
     async def comprador_btn(self, interaction, button):
         if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1982,7 +2141,7 @@ class TradeSetupView(discord.ui.View):
         await self.message.edit(view=self)
 
     # -------- botão vendedor --------
-    @discord.ui.button(label="Vou Receber", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Vou Receber/Vendedor", style=discord.ButtonStyle.green)
     async def vendedor_btn(self, interaction, button):
         if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -2137,7 +2296,7 @@ class TicketView(discord.ui.View):
         )
 
         view = TradeSetupView(canal, interaction.user)
-        msg = await canal.send("> Você é comprador ou vendedor?", view=view)
+        msg = await canal.send("> Você vai **PAGAR** dinheiro ou **RECEBER** o dinheiro", view=view)
         view.message = msg
 
         embed = discord.Embed(
@@ -2497,6 +2656,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
         return
 
     qr = gerar_qrcode_pix(pix_key, valor)
+    pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
     file = discord.File(fp=qr, filename="cobranca_pix.png")
 
     embed = discord.Embed(
@@ -2504,6 +2664,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
         description=(
             f"Titular: {pix_nome}\n"
             f"Chave Pix: `{pix_key}`\n"
+            f"Pix copia e cola:\n`{pix_copia_cola}`\n"
             f"Responsável: {interaction.user.mention}\n"
             f"Valor: R$ {valor:.2f}"
         ),
