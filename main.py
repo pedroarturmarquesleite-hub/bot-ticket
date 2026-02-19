@@ -870,6 +870,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💰 Pagamento total (item + taxa)",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Código Pix: `{pix_copia_cola}`\n"
                 f"Valor do item: R$ {valor:.2f}\n"
                 f"Taxa MM: R$ {taxa:.2f}\n"
                 f"Total: R$ {total:.2f}"
@@ -901,6 +902,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="🛒 QR do comprador (valor do item)",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Código Pix: `{pix_copia_cola_item}`\n"
                 f"Valor: R$ {valor:.2f}"
             ),
             color=discord.Color.blue()
@@ -919,6 +921,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💸 QR do vendedor (taxa do middle)",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Código Pix: `{pix_copia_cola_taxa}`\n"
                 f"Taxa: R$ {taxa:.2f}"
             ),
             color=discord.Color.orange()
@@ -948,6 +951,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="💰 Pagamento do item (após taxa em Brainrot)",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Código Pix: `{pix_copia_cola}`\n"
                 f"Valor confirmado: R$ {valor:.2f}"
             ),
             color=discord.Color.green()
@@ -976,6 +980,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
             title="Cobrança Pix da Trade",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Código Pix: `{pix_copia_cola}`\n"
                 f"Valor: R$ {valor:.2f}"
             ),
             color=discord.Color.green()
@@ -2686,6 +2691,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
         title="Cobrança Pix",
         description=(
             f"Titular: {pix_nome}\n"
+            f"Código Pix: `{pix_copia_cola}`\n"
             f"Responsável: {interaction.user.mention}\n"
             f"Valor: R$ {valor:.2f}"
         ),
