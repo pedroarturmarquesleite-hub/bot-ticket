@@ -101,7 +101,7 @@ async def em_cooldown(interaction: discord.Interaction, action: str, segundos: i
 
     if expira_em > now:
         restante = int(expira_em - now) + 1
-        texto = f"Aguarde {restante}s para usar este botão novamente."
+        texto = f"Aguarde {restante}s para usar este botÃ£o novamente."
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(texto, ephemeral=True)
@@ -547,11 +547,11 @@ def criar_embed_painel():
     taxa_700_pct = float(cfg["acima_700_percentual"]) * 100
 
     embed = discord.Embed(
-        title="🔥 Sistema de Tickets 🔄",
+        title="ðŸ”¥ Sistema de Tickets ðŸ”„",
         description=(
             "> Use esse sistema para solicitar seu **MIDDLE MAN**.\n\n"
-            "**Taxas do Middleman — Vendas de Brainrots**\n\n"
-            f"- *VALOR MÍNIMO DA **TAXA DO MIDDLE MAN** É R$ {taxa_ate_8:.2f}*\n"
+            "**Taxas do Middleman â€” Vendas de Brainrots**\n\n"
+            f"- *VALOR MÃNIMO DA **TAXA DO MIDDLE MAN** Ã‰ R$ {taxa_ate_8:.2f}*\n"
             f"- *R$ {taxa_100:.2f} acima de R$ 100,00*\n"
             f"- *R$ {taxa_400:.2f} acima de R$ 400,00*\n"
             f"- *{taxa_700_pct:.2f}% acima de R$ 700,00*\n\n"
@@ -565,7 +565,7 @@ def criar_embed_painel():
     )
     return embed
 
-# ---------- TAXA DINÂMICA ----------
+# ---------- TAXA DINÃ‚MICA ----------
 def calcular_taxa(valor):
     cfg = carregar_taxa_config()
     if valor > 700:
@@ -597,11 +597,11 @@ class botd(discord.Client):
 
         mensagem = "Ocorreu um erro ao executar este comando. Tente novamente."
         if isinstance(error, app_commands.CommandOnCooldown):
-            mensagem = "Este comando está em cooldown. Aguarde e tente novamente."
+            mensagem = "Este comando estÃ¡ em cooldown. Aguarde e tente novamente."
         elif isinstance(error, app_commands.MissingPermissions):
-            mensagem = "Você não tem permissão para usar este comando."
+            mensagem = "VocÃª nÃ£o tem permissÃ£o para usar este comando."
         elif isinstance(error, app_commands.CheckFailure):
-            mensagem = "Você não pode usar este comando."
+            mensagem = "VocÃª nÃ£o pode usar este comando."
 
         try:
             if interaction.response.is_done():
@@ -637,7 +637,7 @@ class botd(discord.Client):
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
         if not aceite_canal_id:
-            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            await canal.send("âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`.")
             return
 
         try:
@@ -646,7 +646,7 @@ class botd(discord.Client):
             aceite_channel = None
 
         if not isinstance(aceite_channel, discord.TextChannel):
-            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            await canal.send("âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`.")
             return
 
         ticket_kind = ticket_type.get(canal.id, "pix")
@@ -659,7 +659,7 @@ class botd(discord.Client):
     async def _avisar_aceite_trade(self, canal, pessoa1, pessoa2):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
         if not aceite_canal_id:
-            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            await canal.send("âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`.")
             return
 
         try:
@@ -668,7 +668,7 @@ class botd(discord.Client):
             aceite_channel = None
 
         if not isinstance(aceite_channel, discord.TextChannel):
-            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            await canal.send("âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`.")
             return
 
         await aceite_channel.send(
@@ -681,7 +681,7 @@ class botd(discord.Client):
         middle_id = ticket_middleman.get(canal.id)
 
         await canal.send(
-            "🔄 Bot reiniciado. Fluxo deste ticket foi recarregado.",
+            "ðŸ”„ Bot reiniciado. Fluxo deste ticket foi recarregado.",
             view=FecharTicketView(canal)
         )
 
@@ -692,7 +692,7 @@ class botd(discord.Client):
                 if criador:
                     view_setup = TradeSetupView(canal, criador)
                     msg = await canal.send(
-                        "🔄 Bot reiniciado. Se necessário, refaça a definição de comprador e vendedor:",
+                        "ðŸ”„ Bot reiniciado. Se necessÃ¡rio, refaÃ§a a definiÃ§Ã£o de comprador e vendedor:",
                         view=view_setup
                     )
                     view_setup.message = msg
@@ -703,8 +703,8 @@ class botd(discord.Client):
 
             if middle_id is None:
                 embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 Bot reiniciado. Um middle irá aceitar o ticket em breve...",
+                    title="â³ Aguardando Middle Man",
+                    description="ðŸ”„ Bot reiniciado. Um middle irÃ¡ aceitar o ticket em breve...",
                     color=discord.Color.orange()
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -717,8 +717,8 @@ class botd(discord.Client):
                 ticket_middleman.pop(canal.id, None)
                 salvar_estado_tickets()
                 embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 O middle anterior não está disponível. Aguardando novo aceite...",
+                    title="â³ Aguardando Middle Man",
+                    description="ðŸ”„ O middle anterior nÃ£o estÃ¡ disponÃ­vel. Aguardando novo aceite...",
                     color=discord.Color.orange()
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -729,7 +729,7 @@ class botd(discord.Client):
             await canal.set_permissions(middle, view_channel=True)
             view_valor = ValorView(canal, vendedor, comprador)
             msg = await canal.send(
-                f"🔄 Bot reiniciado. {vendedor.mention}, informe o valor para continuar:",
+                f"ðŸ”„ Bot reiniciado. {vendedor.mention}, informe o valor para continuar:",
                 view=view_valor
             )
             view_valor.msg = msg
@@ -742,7 +742,7 @@ class botd(discord.Client):
                 if criador:
                     view_trade = TradeSetupTradeView(canal, criador)
                     msg = await canal.send(
-                        "🔄 Bot reiniciado. Refaça a seleção da pessoa da troca:",
+                        "ðŸ”„ Bot reiniciado. RefaÃ§a a seleÃ§Ã£o da pessoa da troca:",
                         view=view_trade
                     )
                     view_trade.message = msg
@@ -753,8 +753,8 @@ class botd(discord.Client):
 
             if middle_id is None:
                 embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 Bot reiniciado. Um middle irá aceitar o ticket em breve...",
+                    title="â³ Aguardando Middle Man",
+                    description="ðŸ”„ Bot reiniciado. Um middle irÃ¡ aceitar o ticket em breve...",
                     color=discord.Color.orange()
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -767,8 +767,8 @@ class botd(discord.Client):
                 ticket_middleman.pop(canal.id, None)
                 salvar_estado_tickets()
                 embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 O middle anterior não está disponível. Aguardando novo aceite...",
+                    title="â³ Aguardando Middle Man",
+                    description="ðŸ”„ O middle anterior nÃ£o estÃ¡ disponÃ­vel. Aguardando novo aceite...",
                     color=discord.Color.orange()
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -778,7 +778,7 @@ class botd(discord.Client):
 
             await canal.set_permissions(middle, view_channel=True)
             await canal.send(
-                "🔄 Bot reiniciado. Continue escolhendo a taxa da trade:",
+                "ðŸ”„ Bot reiniciado. Continue escolhendo a taxa da trade:",
                 view=TradeTaxaEscolhaView(canal, pessoa1, pessoa2, middle.id)
             )
             return
@@ -830,16 +830,16 @@ class botd(discord.Client):
 async def enviar_qr_fluxo_pix(canal, modo, dados):
     middle_id = _id_int(dados.get("middle_id"))
     if middle_id is None:
-        return False, "❌ Nenhum Middle vinculado a este ticket."
+        return False, "âŒ Nenhum Middle vinculado a este ticket."
 
     pix_info = get_pix_data(middle_id)
     pix_key = pix_info.get("chave")
-    pix_nome = pix_info.get("nome") or "Não informado"
+    pix_nome = pix_info.get("nome") or "NÃ£o informado"
 
     if not pix_key:
-        return False, "❌ Middle não cadastrou chave PIX."
+        return False, "âŒ Middle nÃ£o cadastrou chave PIX."
     if not validar_chave_pix(pix_key):
-        return False, "❌ Middle cadastrou uma chave PIX inválida."
+        return False, "âŒ Middle cadastrou uma chave PIX invÃ¡lida."
 
     if modo == "taxa_comprador":
         valor = float(dados["valor"])
@@ -851,9 +851,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         qr = gerar_qrcode_pix(pix_key, total)
         file = discord.File(fp=qr, filename="pix_total.png")
         embed_qr = discord.Embed(
-            title="💰 Pagamento total (item + taxa)",
+            title="ðŸ’° Pagamento total (item + taxa)",
             description=(
                 f"Titular: {pix_nome}\n"
+                f"Chave Pix: `{pix_key}`\n"
                 f"Valor do item: R$ {valor:.2f}\n"
                 f"Taxa MM: R$ {taxa:.2f}\n"
                 f"Total: R$ {total:.2f}"
@@ -863,7 +864,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         embed_qr.set_image(url="attachment://pix_total.png")
         await canal.send(embed=embed_qr, file=file)
         await canal.send(
-            "⏳ Aguardando pagamento...",
+            "â³ Aguardando pagamento...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor)
         )
         return True, None
@@ -877,8 +878,8 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         qr_item = gerar_qrcode_pix(pix_key, valor)
         file_item = discord.File(fp=qr_item, filename="pix_item.png")
         embed_item = discord.Embed(
-            title="🛒 QR do comprador (valor do item)",
-            description=(f"Titular: {pix_nome}\nValor: R$ {valor:.2f}"),
+            title="ðŸ›’ QR do comprador (valor do item)",
+            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor: R$ {valor:.2f}"),
             color=discord.Color.blue()
         )
         embed_item.set_image(url="attachment://pix_item.png")
@@ -887,15 +888,15 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         qr_taxa = gerar_qrcode_pix(pix_key, taxa)
         file_taxa = discord.File(fp=qr_taxa, filename="pix_taxa.png")
         embed_taxa = discord.Embed(
-            title="💸 QR do vendedor (taxa do middle)",
-            description=(f"Titular: {pix_nome}\nTaxa: R$ {taxa:.2f}"),
+            title="ðŸ’¸ QR do vendedor (taxa do middle)",
+            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nTaxa: R$ {taxa:.2f}"),
             color=discord.Color.orange()
         )
         embed_taxa.set_image(url="attachment://pix_taxa.png")
         await canal.send(embed=embed_taxa, file=file_taxa)
 
         await canal.send(
-            "⏳ Aguardando pagamento...",
+            "â³ Aguardando pagamento...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor)
         )
         return True, None
@@ -908,14 +909,14 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         qr = gerar_qrcode_pix(pix_key, valor)
         file = discord.File(fp=qr, filename="pix_item_brainrot.png")
         embed_qr = discord.Embed(
-            title="💰 Pagamento do item (após taxa em Brainrot)",
-            description=(f"Titular: {pix_nome}\nValor confirmado: R$ {valor:.2f}"),
+            title="ðŸ’° Pagamento do item (apÃ³s taxa em Brainrot)",
+            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor confirmado: R$ {valor:.2f}"),
             color=discord.Color.green()
         )
         embed_qr.set_image(url="attachment://pix_item_brainrot.png")
         await canal.send(embed=embed_qr, file=file)
         await canal.send(
-            "⏳ Aguardando pagamento do comprador...",
+            "â³ Aguardando pagamento do comprador...",
             view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor)
         )
         return True, None
@@ -928,19 +929,19 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         qr = gerar_qrcode_pix(pix_key, valor)
         file = discord.File(fp=qr, filename="trade_pix.png")
         embed = discord.Embed(
-            title="Cobrança Pix da Trade",
-            description=(f"Titular: {pix_nome}\nValor: R$ {valor:.2f}"),
+            title="CobranÃ§a Pix da Trade",
+            description=(f"Titular: {pix_nome}\nChave Pix: `{pix_key}`\nValor: R$ {valor:.2f}"),
             color=discord.Color.green()
         )
         embed.set_image(url="attachment://trade_pix.png")
         await canal.send(embed=embed, file=file)
         await canal.send(
-            "Aguardando confirmação de pagamento...",
+            "Aguardando confirmaÃ§Ã£o de pagamento...",
             view=ConfirmarPagamentoTradePixView(canal, pessoa1, pessoa2, middle_id)
         )
         return True, None
 
-    return False, "❌ Fluxo de reenvio de QR não reconhecido."
+    return False, "âŒ Fluxo de reenvio de QR nÃ£o reconhecido."
 
 
 class ReenviarQrPixView(discord.ui.View):
@@ -958,7 +959,7 @@ class ReenviarQrPixView(discord.ui.View):
         middle_id = ticket_middleman.get(self.canal.id)
         if interaction.user.id != middle_id:
             await interaction.response.send_message(
-                "Apenas o Middle deste ticket pode clicar neste botão.",
+                "Apenas o Middle deste ticket pode clicar neste botÃ£o.",
                 ephemeral=True,
                 delete_after=60
             )
@@ -981,7 +982,7 @@ class ReenviarQrPixView(discord.ui.View):
         except Exception:
             pass
 
-        await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
+        await interaction.followup.send("âœ… QR reenviado com sucesso.", ephemeral=True)
 
 
 # ---------- TAXA VIEW ----------
@@ -1013,10 +1014,10 @@ class TaxaView(discord.ui.View):
         total = self.valor + self.taxa
 
         msg = (
-            f"💰 Valor do item: R$ {self.valor:.2f}\n"
-            f"💸 Taxa MM: R$ {self.taxa:.2f}\n\n"
-            f"🛒 Comprador enviará: R$ {total:.2f}\n"
-            f"🏷️ Vendedor receberá: R$ {self.valor:.2f}"
+            f"ðŸ’° Valor do item: R$ {self.valor:.2f}\n"
+            f"ðŸ’¸ Taxa MM: R$ {self.taxa:.2f}\n\n"
+            f"ðŸ›’ Comprador enviarÃ¡: R$ {total:.2f}\n"
+            f"ðŸ·ï¸ Vendedor receberÃ¡: R$ {self.valor:.2f}"
         )
 
         await self.mostrar(interaction, msg)
@@ -1035,7 +1036,7 @@ class TaxaView(discord.ui.View):
         )
         if not ok:
             await interaction.channel.send(
-                f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
+                f"{erro}\nMiddle: use `/setpix` e clique no botÃ£o abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
                     interaction.channel,
                     "taxa_comprador",
@@ -1063,11 +1064,11 @@ class TaxaView(discord.ui.View):
             return
 
         msg = (
-            f"💰 Valor do item: R$ {self.valor:.2f}\n"
-            f"💸 Taxa MM: R$ {self.taxa:.2f}\n\n"
-            f"🛒 Comprador enviará: R$ {self.valor:.2f}\n"
-            f"🏷️ Vendedor pagará taxa: R$ {self.taxa:.2f}\n"
-            f"🏷️ Vendedor receberá: R$ {self.valor:.2f}"
+            f"ðŸ’° Valor do item: R$ {self.valor:.2f}\n"
+            f"ðŸ’¸ Taxa MM: R$ {self.taxa:.2f}\n\n"
+            f"ðŸ›’ Comprador enviarÃ¡: R$ {self.valor:.2f}\n"
+            f"ðŸ·ï¸ Vendedor pagarÃ¡ taxa: R$ {self.taxa:.2f}\n"
+            f"ðŸ·ï¸ Vendedor receberÃ¡: R$ {self.valor:.2f}"
         )
 
         await self.mostrar(interaction, msg)
@@ -1086,7 +1087,7 @@ class TaxaView(discord.ui.View):
         )
         if not ok:
             await interaction.channel.send(
-                f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
+                f"{erro}\nMiddle: use `/setpix` e clique no botÃ£o abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
                     interaction.channel,
                     "taxa_vendedor",
@@ -1107,7 +1108,7 @@ class ConfirmarPagamentoView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="✅ Recebi o pagamento", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="âœ… Recebi o pagamento", style=discord.ButtonStyle.green)
     async def confirmar_pagamento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_pagamento_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1124,7 +1125,7 @@ class ConfirmarPagamentoView(discord.ui.View):
         await interaction.message.delete()
 
         await self.canal.send(
-            f"📦 {self.comprador.mention}, confirme que recebeu o item:",
+            f"ðŸ“¦ {self.comprador.mention}, confirme que recebeu o item:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
         )
 
@@ -1165,7 +1166,7 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
         )
         if not ok:
             await self.canal.send(
-                f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
+                f"{erro}\nMiddle: use `/setpix` e clique no botÃ£o abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
                     self.canal,
                     "brainrot_item",
@@ -1203,7 +1204,7 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
         await interaction.message.delete()
 
         await self.canal.send(
-            f"📦 {self.comprador.mention}, confirme que recebeu o item:",
+            f"ðŸ“¦ {self.comprador.mention}, confirme que recebeu o item:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
         )
 
@@ -1214,7 +1215,7 @@ class ConfirmarEntregaView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="📦 Recebi o item", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="ðŸ“¦ Recebi o item", style=discord.ButtonStyle.green)
     async def confirmar_item(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_item", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1246,7 +1247,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
         chave = self.chave.value
 
         await self.canal.send(
-            f"💳 Pix do vendedor:\n`{chave}`",
+            f"ðŸ’³ Pix do vendedor:\n`{chave}`",
             view=ConfirmarRecebimentoView(self.canal, self.vendedor)
         )
 
@@ -1258,7 +1259,7 @@ class EnviarPixView(discord.ui.View):
         self.canal = canal
         self.vendedor = vendedor
 
-    @discord.ui.button(label="💳 Enviar meu Pix", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="ðŸ’³ Enviar meu Pix", style=discord.ButtonStyle.blurple)
     async def enviar_pix(self, interaction, button):
 
         if interaction.user != self.vendedor:
@@ -1278,7 +1279,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
         self.canal = canal
         self.vendedor = vendedor
 
-    @discord.ui.button(label="💰 Recebi o pagamento", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="ðŸ’° Recebi o pagamento", style=discord.ButtonStyle.green)
     async def confirmar_recebimento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_vendedor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1295,7 +1296,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
         embed_finalizado = discord.Embed(
             title="Trade Finalizada",
             description=(
-                "✅ Intermediação finalizada com sucesso!\n\n"
+                "âœ… IntermediaÃ§Ã£o finalizada com sucesso!\n\n"
                 "Obrigado por utilizar nosso sistema de middle man."
             ),
             color=discord.Color.green()
@@ -1308,7 +1309,7 @@ class FecharTicketView(discord.ui.View):
         super().__init__(timeout=None)
         self.canal = canal
 
-    @discord.ui.button(label="🔒 Fechar Ticket", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="ðŸ”’ Fechar Ticket", style=discord.ButtonStyle.red)
     async def fechar(self, interaction, button):
         if await em_cooldown(interaction, "fechar_ticket", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1324,7 +1325,7 @@ class FecharTicketView(discord.ui.View):
             return
 
         await interaction.response.send_message(
-            "🔒 Fechando ticket...",
+            "ðŸ”’ Fechando ticket...",
             ephemeral=True, delete_after=60
         )
 
@@ -1371,7 +1372,7 @@ class ConfirmarValorView(discord.ui.View):
         parties = obter_partes_ticket(interaction.channel)
         if not parties:
             await interaction.channel.send(
-                "Não foi possível recuperar comprador/vendedor deste ticket. Reabra o ticket para continuar."
+                "NÃ£o foi possÃ­vel recuperar comprador/vendedor deste ticket. Reabra o ticket para continuar."
             )
             return
         ticket_kind = ticket_type.get(interaction.channel.id, "pix")
@@ -1391,7 +1392,7 @@ class ConfirmarValorView(discord.ui.View):
             return
 
         await interaction.channel.send(
-            "💸 Quem irá pagar a taxa?",
+            "ðŸ’¸ Quem irÃ¡ pagar a taxa?",
              view=TaxaView(
                 self.valor,
                 parties["comprador"],
@@ -1403,7 +1404,7 @@ class ConfirmarValorView(discord.ui.View):
 
 
 # ---------- MODAL VALOR ----------
-class ValorModal(discord.ui.Modal, title="Valor da negociação"):
+class ValorModal(discord.ui.Modal, title="Valor da negociaÃ§Ã£o"):
     valor = discord.ui.TextInput(label="Digite o valor")
 
     def __init__(self, canal, mensagem, comprador):
@@ -1416,7 +1417,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         try:
             valor = float(self.valor.value.replace(",", "."))
         except ValueError:
-            await interaction.response.send_message("Valor inválido.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Valor invÃ¡lido.", ephemeral=True, delete_after=60)
             return
 
         if valor <= 0:
@@ -1448,7 +1449,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         if ticket_kind == "brainrot":
             await self.canal.send(
                 f"Valor: R$ {valor:.2f}\n"
-                f"{self.comprador.mention} **Confirme se o valor da compra está certo**",
+                f"{self.comprador.mention} **Confirme se o valor da compra estÃ¡ certo**",
                 view=ConfirmarValorView(self.comprador, valor)
             )
         else:
@@ -1456,7 +1457,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
                 f"Valor: R$ {valor:.2f}\n"
                 f"Taxa: R$ {taxa:.2f}\n"
                 f"Total: R$ {valor + taxa:.2f}\n"
-                f"{self.comprador.mention} **Confirme se o valor da compra está certo**",
+                f"{self.comprador.mention} **Confirme se o valor da compra estÃ¡ certo**",
                 view=ConfirmarValorView(self.comprador, valor)
             )
 
@@ -1506,7 +1507,7 @@ class MiddlemanAcceptView(discord.ui.View):
         role = discord.utils.get(interaction.guild.roles, name="Middle Man")
 
         if role not in interaction.user.roles:
-            await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("VocÃª nÃ£o Ã© MM.", ephemeral=True, delete_after=60)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -1527,9 +1528,9 @@ class MiddlemanAcceptView(discord.ui.View):
 
         embed_middle = discord.Embed(
             description=(
-                f"{interaction.user.mention} **aceitou o ticket e irá realizar o intermédio.**\n\n"
-                "Você será atendido por um dos membros da nossa equipe.\n"
-                "Caso tenha alguma dúvida sobre o ticket, pergunte ao Middle Man."
+                f"{interaction.user.mention} **aceitou o ticket e irÃ¡ realizar o intermÃ©dio.**\n\n"
+                "VocÃª serÃ¡ atendido por um dos membros da nossa equipe.\n"
+                "Caso tenha alguma dÃºvida sobre o ticket, pergunte ao Middle Man."
             ),
             color=discord.Color.green()
         )
@@ -1540,11 +1541,11 @@ class MiddlemanAcceptView(discord.ui.View):
         await interaction.message.delete()
 
         view_valor = ValorView(self.canal, self.vendedor, self.comprador)
-        msg = await self.canal.send(f"{self.vendedor.mention} **informe o valor que irá vender o BrainRot:**", view=view_valor)
+        msg = await self.canal.send(f"{self.vendedor.mention} **informe o valor que irÃ¡ vender o BrainRot:**", view=view_valor)
         view_valor.msg = msg
 
 
-# ---------- CONFIGURAÇÃO TRADE ----------
+# ---------- CONFIGURAÃ‡ÃƒO TRADE ----------
 class TradeFinalConfirmView(discord.ui.View):
     def __init__(self, canal, pessoa1, pessoa2):
         super().__init__(timeout=None)
@@ -1571,7 +1572,7 @@ class TradeFinalConfirmView(discord.ui.View):
             embed_finalizado = discord.Embed(
                 title="Trade Finalizada",
                 description=(
-                    "✅ Trade finalizada com sucesso!\n\n"
+                    "âœ… Trade finalizada com sucesso!\n\n"
                     "Obrigado por utilizar nosso sistema de middle man."
                 ),
                 color=discord.Color.green()
@@ -1587,7 +1588,7 @@ class TradeFinalConfirmView(discord.ui.View):
             await interaction.response.send_message("Apenas a pessoa 1 pode clicar aqui.", ephemeral=True, delete_after=60)
             return
         self.p1_ok = True
-        await interaction.response.send_message("Confirmação recebida.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("ConfirmaÃ§Ã£o recebida.", ephemeral=True, delete_after=60)
         await self._verificar_finalizacao(interaction)
 
     @discord.ui.button(label="Pessoa 2 confirmou", style=discord.ButtonStyle.green)
@@ -1599,7 +1600,7 @@ class TradeFinalConfirmView(discord.ui.View):
             await interaction.response.send_message("Apenas a pessoa 2 pode clicar aqui.", ephemeral=True, delete_after=60)
             return
         self.p2_ok = True
-        await interaction.response.send_message("Confirmação recebida.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("ConfirmaÃ§Ã£o recebida.", ephemeral=True, delete_after=60)
         await self._verificar_finalizacao(interaction)
 
 
@@ -1641,7 +1642,7 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
         try:
             valor = float(self.valor.value.replace(",", "."))
         except ValueError:
-            await interaction.response.send_message("Valor inválido.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Valor invÃ¡lido.", ephemeral=True, delete_after=60)
             return
         if valor <= 0:
             await interaction.response.send_message("Informe um valor maior que zero.", ephemeral=True, delete_after=60)
@@ -1659,7 +1660,7 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
         )
         if not ok:
             await self.canal.send(
-                f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
+                f"{erro}\nMiddle: use `/setpix` e clique no botÃ£o abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
                     self.canal,
                     "trade_pix",
@@ -1671,13 +1672,13 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
                 )
             )
             await interaction.response.send_message(
-                "Não foi possível gerar o QR agora. Configure o PIX e use o botão no ticket.",
+                "NÃ£o foi possÃ­vel gerar o QR agora. Configure o PIX e use o botÃ£o no ticket.",
                 ephemeral=True,
                 delete_after=60
             )
             return
 
-        await interaction.response.send_message("Cobrança enviada.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("CobranÃ§a enviada.", ephemeral=True, delete_after=60)
 
 
 class TradePixValorView(discord.ui.View):
@@ -1731,7 +1732,7 @@ class TradeTaxaEscolhaView(discord.ui.View):
             await interaction.response.send_message("Apenas o Middle pode escolher a taxa.", ephemeral=True, delete_after=60)
             return
         await interaction.response.send_message(
-            "O middle vai receber o Brainrot da taxa. Em seguida, a troca continuará.",
+            "O middle vai receber o Brainrot da taxa. Em seguida, a troca continuarÃ¡.",
             view=ConfirmarTaxaTradeBrainrotView(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
         )
 
@@ -1779,7 +1780,7 @@ class MiddlemanAcceptTradeView(discord.ui.View):
 
         role = discord.utils.get(interaction.guild.roles, name="Middle Man")
         if role not in interaction.user.roles:
-            await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("VocÃª nÃ£o Ã© MM.", ephemeral=True, delete_after=60)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -1795,9 +1796,9 @@ class MiddlemanAcceptTradeView(discord.ui.View):
 
         embed_middle = discord.Embed(
             description=(
-                f"{interaction.user.mention} **aceitou o ticket e irá realizar o intermédio.**\n\n"
-                "Você será atendido por um dos membros da nossa equipe.\n"
-                "Caso tenha alguma dúvida sobre o ticket, pergunte ao Middle Man."
+                f"{interaction.user.mention} **aceitou o ticket e irÃ¡ realizar o intermÃ©dio.**\n\n"
+                "VocÃª serÃ¡ atendido por um dos membros da nossa equipe.\n"
+                "Caso tenha alguma dÃºvida sobre o ticket, pergunte ao Middle Man."
             ),
             color=discord.Color.green()
         )
@@ -1829,7 +1830,7 @@ class TradeSetupTradeView(discord.ui.View):
             await interaction.response.send_message("Somente quem abriu o ticket pode escolher.", ephemeral=True, delete_after=60)
             return
         if self.escolha_feita:
-            await interaction.response.send_message("Pessoa já foi escolhida.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Pessoa jÃ¡ foi escolhida.", ephemeral=True, delete_after=60)
             return
 
         self.escolha_feita = True
@@ -1847,7 +1848,7 @@ class TradeSetupTradeView(discord.ui.View):
 
         membro = interaction.guild.get_member(int(interaction.data["values"][0]))
         if membro is None or membro == self.criador:
-            await interaction.response.send_message("Seleção inválida.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("SeleÃ§Ã£o invÃ¡lida.", ephemeral=True, delete_after=60)
             return
 
         await self.canal.set_permissions(membro, view_channel=True)
@@ -1860,8 +1861,8 @@ class TradeSetupTradeView(discord.ui.View):
         await interaction.response.send_message("Pessoa adicionada.", ephemeral=True, delete_after=60)
 
         embed = discord.Embed(
-            title="⏳ Aguardando Middle Man",
-            description="🔄 Um middle irá aceitar o ticket em breve...",
+            title="â³ Aguardando Middle Man",
+            description="ðŸ”„ Um middle irÃ¡ aceitar o ticket em breve...",
             color=discord.Color.orange()
         )
         msg_loading = await self.canal.send(embed=embed)
@@ -1881,7 +1882,7 @@ class TradeSetupTradeView(discord.ui.View):
                 view=MiddlemanAcceptTradeView(self.canal, self.criador, membro)
             )
         else:
-            await self.canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            await self.canal.send("âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`.")
 
 
 class TradeSetupView(discord.ui.View):
@@ -1905,8 +1906,8 @@ class TradeSetupView(discord.ui.View):
         )
 
         embed = discord.Embed(
-            title="⏳ Aguardando Middle Man",
-            description="🔄 Um middle irá aceitar o ticket em breve...",
+            title="â³ Aguardando Middle Man",
+            description="ðŸ”„ Um middle irÃ¡ aceitar o ticket em breve...",
             color=discord.Color.orange()
         )
 
@@ -1936,10 +1937,10 @@ class TradeSetupView(discord.ui.View):
             )
         else:
             await self.canal.send(
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`."
+                "âš ï¸ Canal de aceite nÃ£o configurado. Um administrador deve usar `/setaceite`."
             )
 
-    # -------- botão comprador --------
+    # -------- botÃ£o comprador --------
     @discord.ui.button(label="Sou Comprador", style=discord.ButtonStyle.blurple)
     async def comprador_btn(self, interaction, button):
         if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
@@ -1954,7 +1955,7 @@ class TradeSetupView(discord.ui.View):
 
         if self.escolha_feita:
             await interaction.response.send_message(
-                "Escolha já foi feita.",
+                "Escolha jÃ¡ foi feita.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -1962,7 +1963,7 @@ class TradeSetupView(discord.ui.View):
         self.escolha_feita = True
         self.comprador = interaction.user
 
-        # desativa botões
+        # desativa botÃµes
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
@@ -1980,7 +1981,7 @@ class TradeSetupView(discord.ui.View):
 
         await self.message.edit(view=self)
 
-    # -------- botão vendedor --------
+    # -------- botÃ£o vendedor --------
     @discord.ui.button(label="Sou Vendedor", style=discord.ButtonStyle.green)
     async def vendedor_btn(self, interaction, button):
         if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
@@ -1995,7 +1996,7 @@ class TradeSetupView(discord.ui.View):
 
         if self.escolha_feita:
             await interaction.response.send_message(
-                "Escolha já foi feita.",
+                "Escolha jÃ¡ foi feita.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -2003,7 +2004,7 @@ class TradeSetupView(discord.ui.View):
         self.escolha_feita = True
         self.vendedor = interaction.user
 
-        # desativa botões
+        # desativa botÃµes
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
@@ -2021,7 +2022,7 @@ class TradeSetupView(discord.ui.View):
 
         await self.message.edit(view=self)
 
-    # -------- seleção vendedor --------
+    # -------- seleÃ§Ã£o vendedor --------
     async def select_vendedor(self, interaction):
         membro = interaction.guild.get_member(
             int(interaction.data["values"][0])
@@ -2041,7 +2042,7 @@ class TradeSetupView(discord.ui.View):
 
         await self.finalizar(interaction)
 
-    # -------- seleção comprador --------
+    # -------- seleÃ§Ã£o comprador --------
     async def select_comprador(self, interaction):
         membro = interaction.guild.get_member(
             int(interaction.data["values"][0])
@@ -2070,7 +2071,7 @@ class TicketView(discord.ui.View):
     def proximo_numero_ticket_pix(self, guild):
         guild_id = guild.id
 
-        pattern = re.compile(r"^📩-ticket-(\d+)$")
+        pattern = re.compile(r"^ðŸ“©-ticket-(\d+)$")
         maior_existente = 0
 
         for canal in guild.text_channels:
@@ -2110,23 +2111,23 @@ class TicketView(discord.ui.View):
         }
 
         canal = await interaction.guild.create_text_channel(
-            name=f"🔃-ticket-{numero_ticket}",
+            name=f"ðŸ”ƒ-ticket-{numero_ticket}",
             overwrites=overwrites
         )
         salvar_tipo_ticket(canal.id, "pix")
         aviso = discord.Embed(
-            title="📢 LEIA COM ATENÇÃO",
+            title="ðŸ“¢ LEIA COM ATENÃ‡ÃƒO",
             description=(
-                "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
-                "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
-                "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
+                "A taxa de middleman nÃ£o Ã© reembolsÃ¡vel.\n\n"
+                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociaÃ§Ã£o, deixando de atender outros atendimentos. Dessa forma, o serviÃ§o Ã© considerado iniciado no momento da designaÃ§Ã£o do middle, independentemente da conclusÃ£o da trade.\n\n"
+                "Em caso de desistÃªncia de qualquer das partes apÃ³s o pagamento, nÃ£o hÃ¡ reembolso da taxa, conforme regras do servidor e os princÃ­pios da prestaÃ§Ã£o de serviÃ§os e da boa-fÃ© objetiva previstos no CÃ³digo Civil Brasileiro.\n\n"
+                "Ao efetuar o pagamento, o usuÃ¡rio declara estar ciente e de acordo com essa polÃ­tica.\n\n"
                 f"Obrigado.{interaction.user.mention}"
             ),
             color=discord.Color.blue()
         )
         await canal.send(
-            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"ðŸ‘‹ {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*"
         )
 
@@ -2136,13 +2137,13 @@ class TicketView(discord.ui.View):
         )
 
         view = TradeSetupView(canal, interaction.user)
-        msg = await canal.send("> Você é comprador ou vendedor?", view=view)
+        msg = await canal.send("> VocÃª Ã© comprador ou vendedor?", view=view)
         view.message = msg
 
         embed = discord.Embed(
             description=(
-                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
+                f"âœ… | {interaction.user.mention}, seu ticket foi aberto!\n"
+                "Clique abaixo para encontrÃ¡-lo."
             ),
             color=discord.Color.green()
         )
@@ -2162,7 +2163,7 @@ class TicketView(discord.ui.View):
         )
 
     async def criar_ticket_middleman_brainrot(self, interaction):
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "💠-ticket-middle-brainrot")
+        nome_canal = self.proximo_nome_ticket(interaction.guild, "ðŸ’ -ticket-middle-brainrot")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True)
@@ -2175,19 +2176,19 @@ class TicketView(discord.ui.View):
         salvar_tipo_ticket(canal.id, "brainrot")
 
         aviso = discord.Embed(
-            title="📢 LEIA COM ATENÇÃO",
+            title="ðŸ“¢ LEIA COM ATENÃ‡ÃƒO",
             description=(
-                "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
-                "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
-                "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
+                "A taxa de middleman nÃ£o Ã© reembolsÃ¡vel.\n\n"
+                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociaÃ§Ã£o, deixando de atender outros atendimentos. Dessa forma, o serviÃ§o Ã© considerado iniciado no momento da designaÃ§Ã£o do middle, independentemente da conclusÃ£o da trade.\n\n"
+                "Em caso de desistÃªncia de qualquer das partes apÃ³s o pagamento, nÃ£o hÃ¡ reembolso da taxa, conforme regras do servidor e os princÃ­pios da prestaÃ§Ã£o de serviÃ§os e da boa-fÃ© objetiva previstos no CÃ³digo Civil Brasileiro.\n\n"
+                "Ao efetuar o pagamento, o usuÃ¡rio declara estar ciente e de acordo com essa polÃ­tica.\n\n"
                 f"Obrigado.{interaction.user.mention}"
             ),
             color=discord.Color.blue()
         )
 
         await canal.send(
-            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"ðŸ‘‹ {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*"
         )
 
@@ -2197,13 +2198,13 @@ class TicketView(discord.ui.View):
         )
 
         view = TradeSetupView(canal, interaction.user)
-        msg = await canal.send("> Você é comprador ou vendedor?", view=view)
+        msg = await canal.send("> VocÃª Ã© comprador ou vendedor?", view=view)
         view.message = msg
 
         embed = discord.Embed(
             description=(
-                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
+                f"âœ… | {interaction.user.mention}, seu ticket foi aberto!\n"
+                "Clique abaixo para encontrÃ¡-lo."
             ),
             color=discord.Color.green()
         )
@@ -2223,7 +2224,7 @@ class TicketView(discord.ui.View):
         )
 
     async def criar_ticket_middleman_trade(self, interaction):
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "💱-ticket-middle-trade")
+        nome_canal = self.proximo_nome_ticket(interaction.guild, "ðŸ’±-ticket-middle-trade")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True)
@@ -2236,19 +2237,19 @@ class TicketView(discord.ui.View):
         salvar_tipo_ticket(canal.id, "trade")
 
         aviso = discord.Embed(
-            title="📢 LEIA COM ATENÇÃO",
+            title="ðŸ“¢ LEIA COM ATENÃ‡ÃƒO",
             description=(
-                "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
-                "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
-                "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
+                "A taxa de middleman nÃ£o Ã© reembolsÃ¡vel.\n\n"
+                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociaÃ§Ã£o, deixando de atender outros atendimentos. Dessa forma, o serviÃ§o Ã© considerado iniciado no momento da designaÃ§Ã£o do middle, independentemente da conclusÃ£o da trade.\n\n"
+                "Em caso de desistÃªncia de qualquer das partes apÃ³s o pagamento, nÃ£o hÃ¡ reembolso da taxa, conforme regras do servidor e os princÃ­pios da prestaÃ§Ã£o de serviÃ§os e da boa-fÃ© objetiva previstos no CÃ³digo Civil Brasileiro.\n\n"
+                "Ao efetuar o pagamento, o usuÃ¡rio declara estar ciente e de acordo com essa polÃ­tica.\n\n"
                 f"Obrigado.{interaction.user.mention}"
             ),
             color=discord.Color.blue()
         )
 
         await canal.send(
-            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"ðŸ‘‹ {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*"
         )
 
@@ -2258,13 +2259,13 @@ class TicketView(discord.ui.View):
         )
 
         view_trade = TradeSetupTradeView(canal, interaction.user)
-        msg = await canal.send("> Com quem você vai trocar?", view=view_trade)
+        msg = await canal.send("> Com quem vocÃª vai trocar?", view=view_trade)
         view_trade.message = msg
 
         embed = discord.Embed(
             description=(
-                f"✅ | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
+                f"âœ… | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
+                "Clique abaixo para encontrÃ¡-lo."
             ),
             color=discord.Color.green()
         )
@@ -2306,7 +2307,7 @@ class TicketView(discord.ui.View):
                 return
             await self.ticket_view.criar_ticket_middleman_trade(interaction)
 
-    @discord.ui.button(label="💠Solicitar Middle Man", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="ðŸ’ Solicitar Middle Man", style=discord.ButtonStyle.green)
     async def abrir(self, interaction, button):
         if await em_cooldown(interaction, "abrir_menu_ticket_middle", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -2331,7 +2332,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 
     if not validar_chave_pix(chave):
         await interaction.response.send_message(
-            "❌ Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória válida.",
+            "âŒ Chave PIX invÃ¡lida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatÃ³ria vÃ¡lida.",
             ephemeral=True, delete_after=60
         )
         return
@@ -2339,7 +2340,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
     set_pix(interaction.user.id, chave, nome)
 
     await interaction.response.send_message(
-        f"✅ Chave Pix e nome atualizados {interaction.user.mention}",
+        f"âœ… Chave Pix e nome atualizados {interaction.user.mention}",
         ephemeral=True, delete_after=60
     )
 
@@ -2365,13 +2366,13 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
         await canal.send(embed=criar_embed_painel(), view=TicketView())
     except discord.Forbidden:
         await interaction.response.send_message(
-            "Não tenho permissão para enviar mensagem nesse canal.",
+            "NÃ£o tenho permissÃ£o para enviar mensagem nesse canal.",
             ephemeral=True, delete_after=60
         )
         return
 
     await interaction.response.send_message(
-        f"✅ Painel configurado com sucesso em {canal.mention}.",
+        f"âœ… Painel configurado com sucesso em {canal.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -2387,7 +2388,7 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
     set_aceite_canal(interaction.guild.id, canal.id)
 
     await interaction.response.send_message(
-        f"✅ Canal de aceite configurado com sucesso em {canal.mention}.",
+        f"âœ… Canal de aceite configurado com sucesso em {canal.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -2417,7 +2418,7 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
 
 @bot.tree.command(name="settaxa", description="Configura os valores da taxa do middle")
 @app_commands.describe(
-    faixa="Faixa da taxa que você quer alterar",
+    faixa="Faixa da taxa que vocÃª quer alterar",
     valor="Novo valor (para percentual use decimal, ex: 0.02 = 2%)"
 )
 @app_commands.choices(
@@ -2426,7 +2427,7 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
         app_commands.Choice(name="Acima de R$400 (fixo)", value="acima_400_fixo"),
         app_commands.Choice(name="Acima de R$100 (fixo)", value="acima_100_fixo"),
         app_commands.Choice(name="Acima de R$8 (fixo)", value="acima_8_fixo"),
-        app_commands.Choice(name="Até R$8 (fixo)", value="ate_8_fixo"),
+        app_commands.Choice(name="AtÃ© R$8 (fixo)", value="ate_8_fixo"),
     ]
 )
 async def settaxa(
@@ -2443,7 +2444,7 @@ async def settaxa(
 
     if valor < 0:
         await interaction.response.send_message(
-            "O valor da taxa não pode ser negativo.",
+            "O valor da taxa nÃ£o pode ser negativo.",
             ephemeral=True, delete_after=60
         )
         return
@@ -2453,13 +2454,13 @@ async def settaxa(
     salvar_taxa_config(data)
 
     await interaction.response.send_message(
-        f"✅ Taxa atualizada: **{faixa.name}** = `{valor}`",
+        f"âœ… Taxa atualizada: **{faixa.name}** = `{valor}`",
         ephemeral=True, delete_after=60
     )
 
 
 @bot.tree.command(name="cobrar", description="Gera um QR Code Pix no valor informado")
-@app_commands.describe(valor="Valor para gerar a cobrança Pix")
+@app_commands.describe(valor="Valor para gerar a cobranÃ§a Pix")
 async def cobrar(interaction: discord.Interaction, valor: float):
     role = discord.utils.get(interaction.guild.roles, name="Middle Man")
     is_middle = role in interaction.user.roles if role else False
@@ -2481,16 +2482,16 @@ async def cobrar(interaction: discord.Interaction, valor: float):
 
     pix_info = get_pix_data(interaction.user.id)
     pix_key = pix_info.get("chave")
-    pix_nome = pix_info.get("nome") or "Não informado"
+    pix_nome = pix_info.get("nome") or "NÃ£o informado"
     if not pix_key:
         await interaction.response.send_message(
-            "Você ainda não cadastrou sua chave Pix. Use `/setpix` primeiro.",
+            "VocÃª ainda nÃ£o cadastrou sua chave Pix. Use `/setpix` primeiro.",
             ephemeral=True, delete_after=60
         )
         return
     if not validar_chave_pix(pix_key):
         await interaction.response.send_message(
-            "Sua chave PIX cadastrada é inválida. Atualize com `/setpix`.",
+            "Sua chave PIX cadastrada Ã© invÃ¡lida. Atualize com `/setpix`.",
             ephemeral=True, delete_after=60
         )
         return
@@ -2499,10 +2500,11 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     file = discord.File(fp=qr, filename="cobranca_pix.png")
 
     embed = discord.Embed(
-        title="Cobrança Pix",
+        title="CobranÃ§a Pix",
         description=(
             f"Titular: {pix_nome}\n"
-            f"Responsável: {interaction.user.mention}\n"
+            f"Chave Pix: `{pix_key}`\n"
+            f"ResponsÃ¡vel: {interaction.user.mention}\n"
             f"Valor: R$ {valor:.2f}"
         ),
         color=discord.Color.green()
@@ -2514,6 +2516,6 @@ async def cobrar(interaction: discord.Interaction, valor: float):
 
 token = os.getenv("DISCORD_TOKEN")
 if not token:
-    raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
+    raise RuntimeError("Defina a variÃ¡vel de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
