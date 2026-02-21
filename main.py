@@ -376,7 +376,30 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     middle_id = ticket_middleman.get(canal_id)
     partes = ticket_parties.get(canal_id, {})
     partes_trade = ticket_trade_parties.get(canal_id, {})
+    dados_negociacao = ticket_negociacao.get(canal_id, {}) if isinstance(ticket_negociacao.get(canal_id), dict) else {}
     tipo = ticket_type.get(canal_id, "desconhecido")
+
+    valor_brainrot_txt = "Não informado"
+    valor_taxa_txt = "Não informado"
+    nome_brainrot_txt = "Não informado"
+
+    if isinstance(dados_negociacao, dict):
+        nome_brainrot = dados_negociacao.get("brainrot_nome")
+        if isinstance(nome_brainrot, str) and nome_brainrot.strip():
+            nome_brainrot_txt = nome_brainrot.strip()
+
+        valor_negociado = dados_negociacao.get("valor")
+        try:
+            valor_negociado = float(valor_negociado)
+        except (TypeError, ValueError):
+            valor_negociado = None
+
+        if valor_negociado is not None:
+            valor_brainrot_txt = f"R$ {valor_negociado:.2f}"
+            if tipo == "brainrot":
+                valor_taxa_txt = "R$ 0.00 (taxa em item)"
+            else:
+                valor_taxa_txt = f"R$ {calcular_taxa(valor_negociado):.2f}"
 
     ids_participantes = set()
     if isinstance(partes, dict):
@@ -414,6 +437,9 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
         f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
         f"Fechado por: {_formatar_mencao_usuario(closed_by_id)}\n"
+        f"Valor do Brainrot negociado: {valor_brainrot_txt}\n"
+        f"Valor da taxa: {valor_taxa_txt}\n"
+        f"Brainrot informado: {nome_brainrot_txt}\n"
         f"Participantes:\n{participantes_txt}"
     )
     logger.info(mensagem)
