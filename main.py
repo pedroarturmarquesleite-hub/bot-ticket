@@ -401,7 +401,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
             if tipo == "brainrot":
                 valor_taxa_txt = "R$ 0.00 (taxa em item)"
             else:
-                valor_taxa_txt = f"R$ {calcular_taxa(valor_negociado):.2f}"
+                valor_taxa_txt = f"R$ {calcular_taxa(valor_negociado, guild.id):.2f}"
 
     ids_participantes = set()
     if isinstance(partes, dict):
@@ -594,24 +594,55 @@ def get_middle_role(guild):
     return discord.utils.get(guild.roles, name="Middle Man")
 
 
-def carregar_taxa_config():
+def _normalizar_taxa_config(cfg):
+    base = TAXA_PADRAO.copy()
+    if isinstance(cfg, dict):
+        base.update(cfg)
+    return base
+
+
+def carregar_taxa_config(guild_id=None):
     if not os.path.exists(TAXA_CONFIG_FILE):
         return TAXA_PADRAO.copy()
+
     with open(TAXA_CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    cfg = TAXA_PADRAO.copy()
-    cfg.update(data)
-    return cfg
+    # Compatibilidade com formato antigo (global): { "acima_700_percentual": ... }
+    if isinstance(data, dict) and any(k in data for k in TAXA_PADRAO.keys()):
+        return _normalizar_taxa_config(data)
+
+    if guild_id is None:
+        return TAXA_PADRAO.copy()
+
+    if isinstance(data, dict):
+        guild_cfg = data.get(str(guild_id), {})
+        return _normalizar_taxa_config(guild_cfg)
+
+    return TAXA_PADRAO.copy()
 
 
-def salvar_taxa_config(data):
+def salvar_taxa_config_guild(guild_id, cfg):
+    data = {}
+    if os.path.exists(TAXA_CONFIG_FILE):
+        with open(TAXA_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    # Se ainda estiver no formato antigo, migra para objeto por servidor.
+    if isinstance(data, dict) and any(k in data for k in TAXA_PADRAO.keys()):
+        legado = _normalizar_taxa_config(data)
+        data = {"_legacy_global": legado}
+    elif not isinstance(data, dict):
+        data = {}
+
+    data[str(guild_id)] = _normalizar_taxa_config(cfg)
+
     with open(TAXA_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
 
-def criar_embed_painel():
-    cfg = carregar_taxa_config()
+def criar_embed_painel(guild_id=None):
+    cfg = carregar_taxa_config(guild_id)
     taxa_ate_8 = float(cfg["ate_8_fixo"])
     taxa_100 = float(cfg["acima_100_fixo"])
     taxa_400 = float(cfg["acima_400_fixo"])
@@ -637,8 +668,8 @@ def criar_embed_painel():
     return embed
 
 # ---------- TAXA DINÂMICA ----------
-def calcular_taxa(valor):
-    cfg = carregar_taxa_config()
+def calcular_taxa(valor, guild_id=None):
+    cfg = carregar_taxa_config(guild_id)
     if valor > 700:
         return valor * float(cfg["acima_700_percentual"])
     elif valor > 400:
@@ -880,7 +911,7 @@ class botd(discord.Client):
 
             try:
                 await canal.purge(limit=50, check=lambda m: m.author == self.user)
-                await canal.send(embed=criar_embed_painel(), view=TicketView())
+                await canal.send(embed=criar_embed_painel(canal.guild.id), view=TicketView())
             except discord.Forbidden:
                 logger.warning("Sem permissao para gerenciar mensagens no canal %s", canal.id)
             except discord.HTTPException as e:
@@ -1119,12 +1150,13 @@ class PixCopiaColaView(discord.ui.View):
 
 # ---------- TAXA VIEW ----------
 class TaxaView(discord.ui.View):
-    def __init__(self, valor, comprador, vendedor):
+    def __init__(self, valor, comprador, vendedor, guild_id=None):
         super().__init__(timeout=None)
         self.valor = valor
-        self.taxa = calcular_taxa(valor)
+        self.taxa = calcular_taxa(valor, guild_id)
         self.comprador = comprador
         self.vendedor = vendedor
+        self.guild_id = guild_id
 
     async def mostrar(self, interaction, mensagem):
         await interaction.channel.send(mensagem)
@@ -1515,7 +1547,7 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     valor = float(estado["valor"])
     brainrot_nome = estado["brainrot_nome"]
     ticket_kind = ticket_type.get(canal.id, "pix")
-    taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor)
+    taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor, canal.guild.id)
 
     descricao = (
         f"**Brainrot informado por {comprador.mention}:** `{brainrot_nome}`\n"
@@ -1584,7 +1616,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
         else:
             await self.canal.send(
                 f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
-                view=TaxaView(self.valor, self.comprador, self.vendedor)
+                view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id)
             )
         self.stop()
 
@@ -2671,7 +2703,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 @bot.tree.command(name="painel1", description="Enviar painel de tickets")
 async def painel1(interaction: discord.Interaction):
     await interaction.response.send_message(
-        embed=criar_embed_painel(),
+        embed=criar_embed_painel(interaction.guild.id if interaction.guild else None),
         view=TicketView()
     )
 
@@ -2687,7 +2719,7 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
     set_painel_canal(interaction.guild.id, canal.id)
 
     try:
-        await canal.send(embed=criar_embed_painel(), view=TicketView())
+        await canal.send(embed=criar_embed_painel(interaction.guild.id), view=TicketView())
     except discord.Forbidden:
         await interaction.response.send_message(
             "Não tenho permissão para enviar mensagem nesse canal.",
@@ -2789,9 +2821,9 @@ async def settaxa(
         )
         return
 
-    data = carregar_taxa_config()
+    data = carregar_taxa_config(interaction.guild.id)
     data[faixa.value] = valor
-    salvar_taxa_config(data)
+    salvar_taxa_config_guild(interaction.guild.id, data)
 
     await interaction.response.send_message(
         f"✅ Taxa atualizada: **{faixa.name}** = `{valor}`",
