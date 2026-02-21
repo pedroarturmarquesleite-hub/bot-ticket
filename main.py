@@ -31,6 +31,7 @@ ACEITE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "aceite_config.json")
 TAXA_CONFIG_FILE = os.path.join(APP_DATA_DIR, "taxa_config.json")
 TICKET_STATE_FILE = os.path.join(APP_DATA_DIR, "ticket_state.json")
 LOGS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "logs_config.json")
+ROLE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "role_config.json")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
 
@@ -65,6 +66,7 @@ def migrar_dados_legados():
     migrar_arquivo_legado(TAXA_CONFIG_FILE, [os.path.join(cwd, "taxa_config.json"), "taxa_config.json"])
     migrar_arquivo_legado(TICKET_STATE_FILE, [os.path.join(cwd, "ticket_state.json"), "ticket_state.json"])
     migrar_arquivo_legado(LOGS_CONFIG_FILE, [os.path.join(cwd, "logs_config.json"), "logs_config.json"])
+    migrar_arquivo_legado(ROLE_CONFIG_FILE, [os.path.join(cwd, "role_config.json"), "role_config.json"])
 
 
 def setup_logger():
@@ -555,6 +557,41 @@ def set_logs_canal(guild_id, channel_id):
 def get_logs_canal_id(guild_id):
     data = carregar_logs_config()
     return data.get(str(guild_id))
+
+
+def carregar_role_config():
+    if not os.path.exists(ROLE_CONFIG_FILE):
+        return {}
+    with open(ROLE_CONFIG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def salvar_role_config(data):
+    with open(ROLE_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def set_middle_role_id(guild_id, role_id):
+    data = carregar_role_config()
+    data[str(guild_id)] = int(role_id)
+    salvar_role_config(data)
+
+
+def get_middle_role_id(guild_id):
+    data = carregar_role_config()
+    return _id_int(data.get(str(guild_id)))
+
+
+def get_middle_role(guild):
+    if guild is None:
+        return None
+    role_id = get_middle_role_id(guild.id)
+    if role_id is not None:
+        role = guild.get_role(role_id)
+        if role is not None:
+            return role
+    # fallback para compatibilidade com configuração antiga
+    return discord.utils.get(guild.roles, name="Middle Man")
 
 
 def carregar_taxa_config():
@@ -1725,7 +1762,7 @@ class MiddlemanAcceptView(discord.ui.View):
         if await em_cooldown(interaction, "aceitar_ticket_middle", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
-        role = discord.utils.get(interaction.guild.roles, name="Middle Man")
+        role = get_middle_role(interaction.guild)
 
         if role not in interaction.user.roles:
             await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
@@ -2029,7 +2066,7 @@ class MiddlemanAcceptTradeView(discord.ui.View):
         if await em_cooldown(interaction, "aceitar_ticket_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
-        role = discord.utils.get(interaction.guild.roles, name="Middle Man")
+        role = get_middle_role(interaction.guild)
         if role not in interaction.user.roles:
             await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
             return
@@ -2609,10 +2646,10 @@ bot = botd()
 
 @bot.tree.command(name="setpix", description="Define sua chave Pix e nome")
 async def setpix(interaction: discord.Interaction, chave: str, nome: str):
-    role = discord.utils.get(interaction.guild.roles, name="Middle Man")
+    role = get_middle_role(interaction.guild)
     if role not in interaction.user.roles:
         await interaction.response.send_message(
-            "Apenas quem tem o cargo 'Middle Man' pode usar este comando.",
+            "Apenas quem tem o cargo de Middle configurado pode usar este comando.",
             ephemeral=True, delete_after=60
         )
         return
@@ -2676,6 +2713,22 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
 
     await interaction.response.send_message(
         f"✅ Canal de aceite configurado com sucesso em {canal.mention}.",
+        ephemeral=True, delete_after=60
+    )
+
+
+@bot.tree.command(name="setrolemiddle", description="Define qual cargo pode atuar como Middle")
+async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    set_middle_role_id(interaction.guild.id, cargo.id)
+    await interaction.response.send_message(
+        f"✅ Cargo de Middle configurado para {cargo.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -2749,13 +2802,13 @@ async def settaxa(
 @bot.tree.command(name="cobrar", description="Gera um QR Code Pix no valor informado")
 @app_commands.describe(valor="Valor para gerar a cobrança Pix")
 async def cobrar(interaction: discord.Interaction, valor: float):
-    role = discord.utils.get(interaction.guild.roles, name="Middle Man")
+    role = get_middle_role(interaction.guild)
     is_middle = role in interaction.user.roles if role else False
     is_admin = interaction.user.guild_permissions.administrator
 
     if not (is_middle or is_admin):
         await interaction.response.send_message(
-            "Apenas administradores ou quem tem o cargo 'Middle Man' pode usar este comando.",
+            "Apenas administradores ou quem tem o cargo de Middle configurado pode usar este comando.",
             ephemeral=True, delete_after=60
         )
         return
