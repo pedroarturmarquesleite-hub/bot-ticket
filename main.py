@@ -510,8 +510,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         description="Uma movimentação de ticket foi finalizada, informações abaixo:",
         color=cor
     )
-    embed.add_field(name="💲 Valor", value=valor_resumo, inline=False)
-    embed.add_field(name="💸 Taxa", value=valor_taxa_txt, inline=False)
+    embed.add_field(name="💲 Valor total", value=valor_resumo, inline=False)
     embed.add_field(name="👥 Participantes", value=participantes_resumo_txt, inline=False)
     embed.add_field(name="🗓️ Horário", value=horario_txt, inline=False)
     embed.add_field(
