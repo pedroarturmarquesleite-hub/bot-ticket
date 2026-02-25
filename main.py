@@ -983,6 +983,10 @@ class botd(discord.Client):
                 return
 
             await canal.set_permissions(middle, view_channel=True)
+            iniciar_negociacao_trade(canal.id, pessoa1, pessoa2)
+            estado = _estado_negociacao(canal.id)
+            if estado and not estado.get("trade_etapa"):
+                estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
             await canal.send(
                 "🔄 Bot reiniciado. Continue escolhendo a taxa da trade:",
                 view=TradeTaxaEscolhaView(canal, pessoa1, pessoa2, middle.id)
@@ -1233,6 +1237,15 @@ class ReenviarQrPixView(discord.ui.View):
                 delete_after=60
             )
             return
+        if self.modo == "trade_pix":
+            trade_etapa = estado.get("trade_etapa") if estado else None
+            if trade_etapa != "aguardando_valor_pix_trade":
+                await interaction.response.send_message(
+                    "Esta etapa já foi processada.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+                return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -1250,6 +1263,9 @@ class ReenviarQrPixView(discord.ui.View):
             await interaction.message.edit(view=None)
         except Exception:
             pass
+
+        if self.modo == "trade_pix" and estado:
+            estado["trade_etapa"] = "aguardando_pagamento_pix_trade"
 
         await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
 
@@ -1451,7 +1467,10 @@ class ConfirmarPagamentoView(discord.ui.View):
             estado["etapa"] = "pagamento_middle_processando"
 
         await interaction.response.defer()
-        await interaction.message.delete()
+        try:
+            await interaction.message.delete()
+        except discord.NotFound:
+            pass
 
         if estado:
             estado["etapa"] = "aguardando_confirmacao_entrega"
@@ -1494,7 +1513,10 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
             estado["etapa"] = "taxa_brainrot_processando"
 
         await interaction.response.defer()
-        await interaction.message.delete()
+        try:
+            await interaction.message.delete()
+        except discord.NotFound:
+            pass
 
         ok, erro = await enviar_qr_fluxo_pix(
             self.canal,
@@ -1522,6 +1544,8 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
                 )
             )
             return
+        if estado:
+            estado["etapa"] = "aguardando_pagamento_brainrot_pix"
 
 class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
     def __init__(self, canal, comprador, vendedor):
@@ -1532,40 +1556,54 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
 
     @discord.ui.button(label="Recebi o pagamento em PIX", style=discord.ButtonStyle.green)
     async def confirmar_pagamento(self, interaction, button):
-        if await em_cooldown(interaction, "confirmar_pagamento_brainrot_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
+        try:
+            if await em_cooldown(interaction, "confirmar_pagamento_brainrot_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+                return
 
-        middle_id = ticket_middleman.get(self.canal.id)
+            middle_id = ticket_middleman.get(self.canal.id)
 
-        if interaction.user.id != middle_id:
-            await interaction.response.send_message(
-                "Apenas o Middle pode confirmar o pagamento.",
-                ephemeral=True, delete_after=60
+            if interaction.user.id != middle_id:
+                await interaction.response.send_message(
+                    "Apenas o Middle pode confirmar o pagamento.",
+                    ephemeral=True, delete_after=60
+                )
+                return
+
+            estado = _estado_negociacao(self.canal.id)
+            if estado and estado.get("etapa") != "aguardando_pagamento_brainrot_pix":
+                await interaction.response.send_message(
+                    "Esta etapa já foi processada.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+                return
+            if estado:
+                estado["etapa"] = "pagamento_brainrot_pix_processando"
+
+            await interaction.response.defer()
+            try:
+                await interaction.message.delete()
+            except discord.NotFound:
+                pass
+
+            if estado:
+                estado["etapa"] = "aguardando_confirmacao_entrega"
+            await self.canal.send(
+                f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
+                view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
             )
-            return
-        if estado:
-            estado["etapa"] = "aguardando_pagamento_brainrot_pix"
-
-        estado = _estado_negociacao(self.canal.id)
-        if estado and estado.get("etapa") != "aguardando_pagamento_brainrot_pix":
-            await interaction.response.send_message(
-                "Esta etapa já foi processada.",
-                ephemeral=True,
-                delete_after=60
-            )
-            return
-        if estado:
-            estado["etapa"] = "pagamento_brainrot_pix_processando"
-
-        await interaction.response.defer()
-        await interaction.message.delete()
-
-        if estado:
-            estado["etapa"] = "aguardando_confirmacao_entrega"
-        await self.canal.send(
-            f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
-            view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
-        )
+        except Exception:
+            logger.exception("Erro em ConfirmarPagamentoBrainrotPixView canal_id=%s", self.canal.id)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Ocorreu um erro ao confirmar pagamento em PIX. Tente novamente.",
+                    ephemeral=True, delete_after=60
+                )
+            else:
+                await interaction.followup.send(
+                    "Ocorreu um erro ao confirmar pagamento em PIX. Tente novamente.",
+                    ephemeral=True
+                )
 
 class ConfirmarEntregaView(discord.ui.View):
     def __init__(self, canal, comprador, vendedor):
@@ -1585,7 +1623,6 @@ class ConfirmarEntregaView(discord.ui.View):
                 ephemeral=True, delete_after=60
             )
             return
-
         estado = _estado_negociacao(self.canal.id)
         if estado and estado.get("etapa") != "aguardando_confirmacao_entrega":
             await interaction.response.send_message(
@@ -1769,6 +1806,17 @@ def _estado_negociacao(canal_id):
     if not isinstance(estado, dict):
         return None
     return estado
+
+
+def iniciar_negociacao_trade(canal_id, pessoa1=None, pessoa2=None):
+    estado = _estado_negociacao(canal_id) or {}
+    if pessoa1 is not None:
+        estado["trade_pessoa1_id"] = pessoa1.id if hasattr(pessoa1, "id") else _id_int(pessoa1)
+    if pessoa2 is not None:
+        estado["trade_pessoa2_id"] = pessoa2.id if hasattr(pessoa2, "id") else _id_int(pessoa2)
+    if not estado.get("trade_etapa"):
+        estado["trade_etapa"] = "aguardando_parceiro_trade"
+    ticket_negociacao[canal_id] = estado
 
 
 async def tentar_publicar_confirmacao_negociacao(canal):
@@ -2164,6 +2212,11 @@ class TradeFinalConfirmView(discord.ui.View):
 
     async def _verificar_finalizacao(self, interaction):
         if self.p1_ok and self.p2_ok:
+            estado = _estado_negociacao(self.canal.id)
+            if estado and estado.get("trade_etapa") not in {"aguardando_confirmacoes_trade", "finalizando_trade"}:
+                return
+            if estado:
+                estado["trade_etapa"] = "finalizando_trade"
             try:
                 await interaction.message.edit(view=None)
             except Exception:
@@ -2177,6 +2230,8 @@ class TradeFinalConfirmView(discord.ui.View):
                 color=discord.Color.green()
             )
             await self.canal.send(embed=embed_finalizado)
+            if estado:
+                estado["trade_etapa"] = "finalizado_trade"
 
     @discord.ui.button(label="Pessoa 1 confirmou", style=discord.ButtonStyle.blurple)
     async def confirmar_p1(self, interaction, button):
@@ -2219,8 +2274,23 @@ class ConfirmarPagamentoTradePixView(discord.ui.View):
         if interaction.user.id != self.middle_id:
             await interaction.response.send_message("Apenas o Middle pode confirmar o pagamento.", ephemeral=True, delete_after=60)
             return
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_pagamento_pix_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["trade_etapa"] = "processando_pagamento_pix_trade"
         await interaction.response.defer()
-        await interaction.message.delete()
+        try:
+            await interaction.message.delete()
+        except discord.NotFound:
+            pass
+        if estado:
+            estado["trade_etapa"] = "aguardando_confirmacoes_trade"
         await self.canal.send(
             f"{self.pessoa1.mention} e {self.pessoa2.mention}, confirmem se a troca foi feita:",
             view=TradeFinalConfirmView(self.canal, self.pessoa1, self.pessoa2)
@@ -2247,6 +2317,16 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
             await interaction.response.send_message("Informe um valor maior que zero.", ephemeral=True, delete_after=60)
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_valor_pix_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        if estado:
+            estado["trade_etapa"] = "processando_valor_pix_trade"
+
         ok, erro = await enviar_qr_fluxo_pix(
             self.canal,
             "trade_pix",
@@ -2258,6 +2338,8 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
             }
         )
         if not ok:
+            if estado:
+                estado["trade_etapa"] = "aguardando_valor_pix_trade"
             await self.canal.send(
                 f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
@@ -2277,6 +2359,8 @@ class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
             )
             return
 
+        if estado:
+            estado["trade_etapa"] = "aguardando_pagamento_pix_trade"
         await interaction.response.send_message("Cobrança enviada.", ephemeral=True, delete_after=60)
 
 
@@ -2295,6 +2379,13 @@ class TradePixValorView(discord.ui.View):
 
         if interaction.user.id != self.middle_id:
             await interaction.response.send_message("Apenas o Middle pode informar o valor.", ephemeral=True, delete_after=60)
+            return
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_valor_pix_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
             return
         await interaction.response.send_modal(
             TradePixValorModal(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
@@ -2317,6 +2408,20 @@ class TradeTaxaEscolhaView(discord.ui.View):
         if interaction.user.id != self.middle_id:
             await interaction.response.send_message("Apenas o Middle pode escolher a taxa.", ephemeral=True, delete_after=60)
             return
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_escolha_taxa_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        if estado:
+            estado["trade_etapa"] = "aguardando_valor_pix_trade"
+
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
         await interaction.response.send_message(
             "Middle, informe o valor da taxa em reais",
             view=TradePixValorView(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
@@ -2330,6 +2435,20 @@ class TradeTaxaEscolhaView(discord.ui.View):
         if interaction.user.id != self.middle_id:
             await interaction.response.send_message("Apenas o Middle pode escolher a taxa.", ephemeral=True, delete_after=60)
             return
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_escolha_taxa_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        if estado:
+            estado["trade_etapa"] = "aguardando_confirmacao_taxa_brainrot_trade"
+
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
         await interaction.response.send_message(
             "O middle vai receber o Brainrot da taxa. Em seguida, a troca continuará.",
             view=ConfirmarTaxaTradeBrainrotView(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
@@ -2356,9 +2475,24 @@ class ConfirmarTaxaTradeBrainrotView(discord.ui.View):
             )
             return
 
-        await interaction.response.defer()
-        await interaction.message.delete()
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") != "aguardando_confirmacao_taxa_brainrot_trade":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        if estado:
+            estado["trade_etapa"] = "processando_taxa_brainrot_trade"
 
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.NotFound:
+            pass
+
+        if estado:
+            estado["trade_etapa"] = "aguardando_confirmacoes_trade"
         await self.canal.send(
             f"{self.pessoa1.mention} e {self.pessoa2.mention}, confirmem se a troca foi feita:",
             view=TradeFinalConfirmView(self.canal, self.pessoa1, self.pessoa2)
@@ -2401,6 +2535,10 @@ class MiddlemanAcceptTradeView(discord.ui.View):
 
         # Reserva o ticket para este middle antes de qualquer await adicional.
         salvar_middleman_ticket(self.canal.id, interaction.user.id)
+        iniciar_negociacao_trade(self.canal.id, self.pessoa1, self.pessoa2)
+        estado = _estado_negociacao(self.canal.id)
+        if estado:
+            estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
         await interaction.response.defer(ephemeral=True)
         await self.canal.set_permissions(interaction.user, view_channel=True)
 
@@ -2477,6 +2615,10 @@ class TradeSetupTradeView(discord.ui.View):
 
         await self.canal.set_permissions(membro, view_channel=True)
         salvar_partes_trade(self.canal.id, self.criador, membro)
+        iniciar_negociacao_trade(self.canal.id, self.criador, membro)
+        estado = _estado_negociacao(self.canal.id)
+        if estado:
+            estado["trade_etapa"] = "aguardando_middle_trade"
 
         await self.message.edit(
             content=f"Pessoa 1: {self.criador.mention}\nPessoa 2: {membro.mention}",
