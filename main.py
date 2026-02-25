@@ -33,6 +33,7 @@ TAXA_CONFIG_FILE = os.path.join(APP_DATA_DIR, "taxa_config.json")
 TICKET_STATE_FILE = os.path.join(APP_DATA_DIR, "ticket_state.json")
 LOGS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "logs_config.json")
 ROLE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "role_config.json")
+MIDDLE_CATEGORY_CONFIG_FILE = os.path.join(APP_DATA_DIR, "middle_category_config.json")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
 PANEL_DEFAULT_IMAGE_URL = (
@@ -684,6 +685,29 @@ def get_middle_role(guild):
             return role
     # fallback para compatibilidade com configuração antiga
     return discord.utils.get(guild.roles, name="Middle Man")
+
+
+def carregar_middle_category_config():
+    if not os.path.exists(MIDDLE_CATEGORY_CONFIG_FILE):
+        return {}
+    with open(MIDDLE_CATEGORY_CONFIG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def salvar_middle_category_config(data):
+    with open(MIDDLE_CATEGORY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def set_middle_category_id(guild_id, category_id):
+    data = carregar_middle_category_config()
+    data[str(guild_id)] = int(category_id)
+    salvar_middle_category_config(data)
+
+
+def get_middle_category_id(guild_id):
+    data = carregar_middle_category_config()
+    return _id_int(data.get(str(guild_id)))
 
 
 def _normalizar_taxa_config(cfg):
@@ -2868,6 +2892,12 @@ class TicketView(discord.ui.View):
         return f"{prefixo}-{total + 1}"
 
     async def obter_ou_criar_categoria_middle(self, guild):
+        category_id = get_middle_category_id(guild.id)
+        if category_id is not None:
+            categoria_cfg = guild.get_channel(category_id)
+            if isinstance(categoria_cfg, discord.CategoryChannel):
+                return categoria_cfg
+
         nome_categoria = "middle man"
         for categoria in guild.categories:
             if categoria.name.strip().lower() == nome_categoria:
@@ -3239,6 +3269,22 @@ async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
     set_middle_role_id(interaction.guild.id, cargo.id)
     await interaction.response.send_message(
         f"✅ Cargo de Middle configurado para {cargo.mention}.",
+        ephemeral=True, delete_after=60
+    )
+
+
+@bot.tree.command(name="setcmiddle", description="Define a categoria onde os tickets de middle serão criados")
+async def setcmiddle(interaction: discord.Interaction, categoria: discord.CategoryChannel):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    set_middle_category_id(interaction.guild.id, categoria.id)
+    await interaction.response.send_message(
+        f"✅ Categoria de tickets configurada para **{categoria.name}**.",
         ephemeral=True, delete_after=60
     )
 
