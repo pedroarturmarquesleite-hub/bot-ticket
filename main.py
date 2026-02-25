@@ -34,6 +34,12 @@ LOGS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "logs_config.json")
 ROLE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "role_config.json")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
+PANEL_DEFAULT_IMAGE_URL = (
+    "https://media.discordapp.net/attachments/1359946778480218176/"
+    "1472704120228938007/content.png?ex=69938a17&is=69923897&"
+    "hm=18c6ebe99a86ef08f81467c72a418216f65c1093b718ea04589f86ef927f9eb5&="
+    "&format=webp&quality=lossless&width=1296&height=864"
+)
 
 
 TAXA_PADRAO = {
@@ -470,11 +476,52 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         )
         return
 
+    tipo_base = "Troca venda/compra"
+    cor = discord.Color.blurple()
+    if tipo == "brainrot":
+        tipo_base = "Troca de Brainrot"
+        cor = discord.Color.orange()
+    elif tipo == "trade":
+        tipo_base = "Trade"
+        cor = discord.Color.gold()
+
+    participantes_resumo = []
+    if creator_id is not None:
+        participantes_resumo.append(f"<@{creator_id}>")
+    if middle_id is not None and middle_id != creator_id:
+        participantes_resumo.append(f"<@{middle_id}>")
+    for uid in sorted(ids_participantes):
+        if uid not in {creator_id, middle_id}:
+            participantes_resumo.append(f"<@{uid}>")
+
+    participantes_resumo_txt = " ".join(participantes_resumo) if participantes_resumo else "Não informado"
+
+    valor_resumo = valor_brainrot_txt
+
+    horario_txt = discord.utils.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+
     embed = discord.Embed(
-        title="Log de fechamento de ticket",
-        description=mensagem,
-        color=discord.Color.orange()
+        title=f"🎟️ — {tipo_base} {canal.name} (Automático)",
+        description="Uma movimentação de ticket foi finalizada, informações abaixo:",
+        color=cor
     )
+    embed.add_field(name="💲 Valor", value=valor_resumo, inline=False)
+    embed.add_field(name="💸 Taxa", value=valor_taxa_txt, inline=False)
+    embed.add_field(name="👥 Participantes", value=participantes_resumo_txt, inline=False)
+    embed.add_field(name="🗓️ Horário", value=horario_txt, inline=False)
+    embed.add_field(
+        name="📌 Detalhes",
+        value=(
+            f"Tipo: `{tipo}`\n"
+            f"Canal: {canal.mention}\n"
+            f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
+            f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
+            f"Fechado por: {_formatar_mencao_usuario(closed_by_id)}\n"
+            f"Brainrot: {nome_brainrot_txt}"
+        ),
+        inline=False
+    )
+    embed.set_footer(text=f"Ticket ID: {canal.id}")
     try:
         await canal_logs.send(embed=embed)
     except discord.Forbidden:
@@ -509,8 +556,52 @@ def salvar_painel_config(data):
 
 def set_painel_canal(guild_id, channel_id):
     data = carregar_painel_config()
-    data[str(guild_id)] = channel_id
+    entry = data.get(str(guild_id))
+    if isinstance(entry, dict):
+        entry["channel_id"] = int(channel_id)
+        data[str(guild_id)] = entry
+    else:
+        data[str(guild_id)] = {"channel_id": int(channel_id), "image_url": None}
     salvar_painel_config(data)
+
+
+def get_painel_canal_id(guild_id):
+    data = carregar_painel_config()
+    entry = data.get(str(guild_id))
+    if isinstance(entry, dict):
+        return _id_int(entry.get("channel_id"))
+    return _id_int(entry)
+
+
+def set_painel_image_url(guild_id, image_url):
+    data = carregar_painel_config()
+    entry = data.get(str(guild_id))
+    if isinstance(entry, dict):
+        entry["image_url"] = image_url
+        data[str(guild_id)] = entry
+    else:
+        data[str(guild_id)] = {"channel_id": _id_int(entry), "image_url": image_url}
+    salvar_painel_config(data)
+
+
+def get_painel_image_url(guild_id):
+    data = carregar_painel_config()
+    entry = data.get(str(guild_id))
+    if isinstance(entry, dict):
+        url = entry.get("image_url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+        return None
+    return None
+
+
+def validar_url_imagem(url):
+    if not isinstance(url, str):
+        return False
+    url = url.strip()
+    if not url:
+        return False
+    return url.startswith("http://") or url.startswith("https://")
 
 
 def carregar_aceite_config():
@@ -662,9 +753,13 @@ def criar_embed_painel(guild_id=None):
         color=discord.Color.blue()
     )
 
-    embed.set_image(
-        url="https://media.discordapp.net/attachments/1359946778480218176/1472704120228938007/content.png?ex=69938a17&is=69923897&hm=18c6ebe99a86ef08f81467c72a418216f65c1093b718ea04589f86ef927f9eb5&=&format=webp&quality=lossless&width=1296&height=864"
-    )
+    img_url = PANEL_DEFAULT_IMAGE_URL
+    if guild_id is not None:
+        img_cfg = get_painel_image_url(guild_id)
+        if img_cfg:
+            img_url = img_cfg
+
+    embed.set_image(url=img_url)
     return embed
 
 # ---------- TAXA DINÂMICA ----------
@@ -899,7 +994,12 @@ class botd(discord.Client):
         self._painel_inicializado = True
 
         config = carregar_painel_config()
-        for _, channel_id in config.items():
+        for guild_key, entry in config.items():
+            guild_id = _id_int(guild_key)
+            if guild_id is None:
+                continue
+
+            channel_id = entry.get("channel_id") if isinstance(entry, dict) else entry
             try:
                 channel_id = int(channel_id)
                 canal = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
@@ -1115,6 +1215,23 @@ class ReenviarQrPixView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        etapa = estado.get("etapa") if estado else None
+        if self.modo in {"taxa_comprador", "taxa_vendedor"} and etapa != "aguardando_escolha_taxa":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if self.modo == "brainrot_item" and etapa != "aguardando_pagamento_brainrot_pix":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+
         await interaction.response.defer(ephemeral=True)
 
         dados = dict(self.dados)
@@ -1320,8 +1437,22 @@ class ConfirmarPagamentoView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_pagamento_middle":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["etapa"] = "pagamento_middle_processando"
+
+        await interaction.response.defer()
         await interaction.message.delete()
 
+        if estado:
+            estado["etapa"] = "aguardando_confirmacao_entrega"
         await self.canal.send(
             f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
@@ -1349,6 +1480,17 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_taxa_brainrot_middle":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["etapa"] = "taxa_brainrot_processando"
+
         await interaction.response.defer()
         await interaction.message.delete()
 
@@ -1363,6 +1505,8 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
             }
         )
         if not ok:
+            if estado:
+                estado["etapa"] = "aguardando_pagamento_brainrot_pix"
             await self.canal.send(
                 f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
@@ -1398,9 +1542,22 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_pagamento_brainrot_pix":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["etapa"] = "pagamento_brainrot_pix_processando"
+
         await interaction.response.defer()
         await interaction.message.delete()
 
+        if estado:
+            estado["etapa"] = "aguardando_confirmacao_entrega"
         await self.canal.send(
             f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor)
@@ -1425,8 +1582,22 @@ class ConfirmarEntregaView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_confirmacao_entrega":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["etapa"] = "entrega_confirmada_processando"
+
+        await interaction.response.defer()
         await interaction.message.delete()
 
+        if estado:
+            estado["etapa"] = "aguardando_envio_pix_vendedor"
         await self.canal.send(
             f"{self.vendedor.mention}, envie sua chave Pix para que o Middle Man possa enviar o pix do Brainrot",
             view=EnviarPixView(self.canal, self.vendedor)
@@ -1443,11 +1614,20 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
     async def on_submit(self, interaction):
 
         chave = self.chave.value
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_envio_pix_vendedor":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True, delete_after=60
+            )
+            return
 
         await self.canal.send(
             f"💳 Pix do vendedor: \n*Apenas confirme o pagamento quando o Middle Man enviar o seu pix* \n`{chave}`",
             view=ConfirmarRecebimentoView(self.canal, self.vendedor)
         )
+        if estado:
+            estado["etapa"] = "aguardando_confirmacao_recebimento_vendedor"
 
         await interaction.response.send_message("Pix enviado.", ephemeral=True, delete_after=60)
 
@@ -1463,6 +1643,14 @@ class EnviarPixView(discord.ui.View):
         if interaction.user != self.vendedor:
             await interaction.response.send_message(
                 "Somente o vendedor pode enviar Pix.",
+                ephemeral=True, delete_after=60
+            )
+            return
+
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_envio_pix_vendedor":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -1489,6 +1677,18 @@ class ConfirmarRecebimentoView(discord.ui.View):
             )
             return
 
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") != "aguardando_confirmacao_recebimento_vendedor":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado:
+            estado["etapa"] = "finalizacao_processando"
+
+        await interaction.response.defer()
         await interaction.message.delete()
 
         embed_finalizado = discord.Embed(
@@ -1501,6 +1701,8 @@ class ConfirmarRecebimentoView(discord.ui.View):
         )
 
         await self.canal.send(embed=embed_finalizado)
+        if estado:
+            estado["etapa"] = "finalizado"
 
 class FecharTicketView(discord.ui.View):
     def __init__(self, canal):
@@ -1734,6 +1936,8 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
                 delete_after=60
             )
             return
+        if estado:
+            estado["etapa"] = "aguardando_pagamento_brainrot_pix"
         if estado.get("confirm_msg_id"):
             await interaction.response.send_message(
                 "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
@@ -2802,6 +3006,57 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
 
     await interaction.response.send_message(
         f"✅ Painel configurado com sucesso em {canal.mention}.",
+        ephemeral=True, delete_after=60
+    )
+
+@bot.tree.command(name="setimgp", description="Define a imagem do painel por URL")
+async def setimgp(interaction: discord.Interaction, url: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    if not validar_url_imagem(url):
+        await interaction.response.send_message(
+            "URL inválida. Envie uma URL iniciando com http:// ou https://",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    guild_id = interaction.guild.id
+    set_painel_image_url(guild_id, url.strip())
+
+    painel_canal_id = get_painel_canal_id(guild_id)
+    canal = None
+    if painel_canal_id is not None:
+        try:
+            canal = interaction.guild.get_channel(painel_canal_id)
+            if canal is None:
+                canal = await interaction.guild.fetch_channel(painel_canal_id)
+        except Exception:
+            canal = None
+
+    if isinstance(canal, discord.TextChannel):
+        try:
+            await canal.purge(limit=50, check=lambda m: m.author == bot.user)
+            await canal.send(embed=criar_embed_painel(guild_id), view=TicketView())
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Imagem salva, mas não tenho permissão para atualizar o painel no canal configurado.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        except discord.HTTPException:
+            await interaction.response.send_message(
+                "Imagem salva, mas falhou ao atualizar o painel agora.",
+                ephemeral=True, delete_after=60
+            )
+            return
+
+    await interaction.response.send_message(
+        "✅ Imagem do painel atualizada para este servidor.",
         ephemeral=True, delete_after=60
     )
 
