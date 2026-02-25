@@ -1159,6 +1159,10 @@ class TaxaView(discord.ui.View):
         self.guild_id = guild_id
 
     async def mostrar(self, interaction, mensagem):
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
         await interaction.channel.send(mensagem)
         await interaction.response.send_message("Taxa definida.", ephemeral=True, delete_after=60)
         self.stop()
@@ -1168,12 +1172,23 @@ class TaxaView(discord.ui.View):
         if await em_cooldown(interaction, "taxa_escolha_pagador", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
+        estado = _estado_negociacao(interaction.channel.id)
+        if estado and estado.get("etapa") != "aguardando_escolha_taxa":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+
         if interaction.user != self.comprador:
             await interaction.response.send_message(
                 "Somente o comprador pode escolher quem paga a taxa.",
                 ephemeral=True, delete_after=60
             )
             return
+        if estado:
+            estado["etapa"] = "escolha_taxa_processando"
 
         total = self.valor + self.taxa
 
@@ -1199,6 +1214,8 @@ class TaxaView(discord.ui.View):
             }
         )
         if not ok:
+            if estado:
+                estado["etapa"] = "aguardando_escolha_taxa"
             await interaction.channel.send(
                 f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
@@ -1213,11 +1230,22 @@ class TaxaView(discord.ui.View):
                 )
             )
             return
+        if estado:
+            estado["etapa"] = "aguardando_pagamento_middle"
 
 
     @discord.ui.button(label="Vendedor paga", style=discord.ButtonStyle.red)
     async def vendedor(self, interaction, button):
         if await em_cooldown(interaction, "taxa_escolha_pagador", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+
+        estado = _estado_negociacao(interaction.channel.id)
+        if estado and estado.get("etapa") != "aguardando_escolha_taxa":
+            await interaction.response.send_message(
+                "Esta etapa já foi processada.",
+                ephemeral=True,
+                delete_after=60
+            )
             return
 
         if interaction.user != self.comprador:
@@ -1226,6 +1254,8 @@ class TaxaView(discord.ui.View):
                 ephemeral=True, delete_after=60
             )
             return
+        if estado:
+            estado["etapa"] = "escolha_taxa_processando"
 
         msg = (
             f"💰 Valor do item: R$ {self.valor:.2f}\n"
@@ -1250,6 +1280,8 @@ class TaxaView(discord.ui.View):
             }
         )
         if not ok:
+            if estado:
+                estado["etapa"] = "aguardando_escolha_taxa"
             await interaction.channel.send(
                 f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
                 view=ReenviarQrPixView(
@@ -1264,6 +1296,8 @@ class TaxaView(discord.ui.View):
                 )
             )
             return
+        if estado:
+            estado["etapa"] = "aguardando_pagamento_middle"
 
 class ConfirmarPagamentoView(discord.ui.View):
     def __init__(self, canal, comprador, vendedor):
@@ -1519,7 +1553,8 @@ def iniciar_negociacao_ticket(canal_id, comprador, vendedor):
         "vendedor_id": vendedor.id if hasattr(vendedor, "id") else _id_int(vendedor),
         "valor": None,
         "brainrot_nome": None,
-        "confirm_msg_id": None
+        "confirm_msg_id": None,
+        "etapa": "coleta_dados"
     }
 
 
@@ -1533,6 +1568,8 @@ def _estado_negociacao(canal_id):
 async def tentar_publicar_confirmacao_negociacao(canal):
     estado = _estado_negociacao(canal.id)
     if not estado or estado.get("confirm_msg_id"):
+        return
+    if estado.get("etapa") not in {None, "coleta_dados", "aguardando_confirmacoes"}:
         return
     if estado.get("valor") is None or not estado.get("brainrot_nome"):
         return
@@ -1573,6 +1610,7 @@ async def tentar_publicar_confirmacao_negociacao(canal):
         view=ConfirmarNegociacaoView(canal, comprador, vendedor, valor)
     )
     estado["confirm_msg_id"] = msg.id
+    estado["etapa"] = "aguardando_confirmacoes"
 
 
 class ConfirmarNegociacaoView(discord.ui.View):
@@ -1596,6 +1634,11 @@ class ConfirmarNegociacaoView(discord.ui.View):
     async def _seguir_fluxo(self, interaction):
         if not (self.valor_confirmado and self.brainrot_confirmado):
             return
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("etapa") not in {"aguardando_confirmacoes", "coleta_dados"}:
+            return
+        if estado:
+            estado["etapa"] = "avanco_confirmacao_processando"
         try:
             await interaction.message.edit(view=None)
         except Exception:
@@ -1603,6 +1646,8 @@ class ConfirmarNegociacaoView(discord.ui.View):
 
         ticket_kind = ticket_type.get(self.canal.id, "pix")
         if ticket_kind == "brainrot":
+            if estado:
+                estado["etapa"] = "aguardando_taxa_brainrot_middle"
             await self.canal.send(
                 "Enviem o servidor/brainrot da taxa para o Middle.\n"
                 "Quando receber, o Middle confirma abaixo:",
@@ -1614,6 +1659,8 @@ class ConfirmarNegociacaoView(discord.ui.View):
                 )
             )
         else:
+            if estado:
+                estado["etapa"] = "aguardando_escolha_taxa"
             await self.canal.send(
                 f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
                 view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id)
@@ -1680,8 +1727,21 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         if not estado:
             iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
             estado = _estado_negociacao(self.canal.id)
+        if estado.get("etapa") not in {"coleta_dados", "aguardando_confirmacoes"}:
+            await interaction.response.send_message(
+                "Esta etapa já foi concluída. Siga o fluxo atual do ticket.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado.get("confirm_msg_id"):
+            await interaction.response.send_message(
+                "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
         estado["valor"] = valor
-        estado["confirm_msg_id"] = None
 
         try:
             await self.mensagem.delete()
@@ -1737,8 +1797,21 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
         if not estado:
             iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
             estado = _estado_negociacao(self.canal.id)
+        if estado.get("etapa") not in {"coleta_dados", "aguardando_confirmacoes"}:
+            await interaction.response.send_message(
+                "Esta etapa já foi concluída. Siga o fluxo atual do ticket.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
+        if estado.get("confirm_msg_id"):
+            await interaction.response.send_message(
+                "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
+                ephemeral=True,
+                delete_after=60
+            )
+            return
         estado["brainrot_nome"] = nome
-        estado["confirm_msg_id"] = None
 
         try:
             await self.mensagem.delete()
