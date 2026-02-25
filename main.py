@@ -390,13 +390,11 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
 
     valor_brainrot_txt = "Não informado"
     valor_taxa_txt = "Não informado"
-    nome_brainrot_txt = "Não informado"
+    valor_total_txt = "Não informado"
+    valor_negociado_num = None
+    valor_taxa_num = None
 
     if isinstance(dados_negociacao, dict):
-        nome_brainrot = dados_negociacao.get("brainrot_nome")
-        if isinstance(nome_brainrot, str) and nome_brainrot.strip():
-            nome_brainrot_txt = nome_brainrot.strip()
-
         valor_negociado = dados_negociacao.get("valor")
         try:
             valor_negociado = float(valor_negociado)
@@ -404,11 +402,17 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
             valor_negociado = None
 
         if valor_negociado is not None:
+            valor_negociado_num = valor_negociado
             valor_brainrot_txt = f"R$ {valor_negociado:.2f}"
             if tipo == "brainrot":
                 valor_taxa_txt = "R$ 0.00 (taxa em item)"
+                valor_taxa_num = 0.0
             else:
-                valor_taxa_txt = f"R$ {calcular_taxa(valor_negociado, guild.id):.2f}"
+                valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id))
+                valor_taxa_txt = f"R$ {valor_taxa_num:.2f}"
+
+    if valor_negociado_num is not None and valor_taxa_num is not None:
+        valor_total_txt = f"R$ {valor_negociado_num + valor_taxa_num:.2f}"
 
     ids_participantes = set()
     if isinstance(partes, dict):
@@ -445,10 +449,9 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         f"Tipo: {tipo}\n"
         f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
         f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
-        f"Fechado por: {_formatar_mencao_usuario(closed_by_id)}\n"
+        f"Valor total (valor + taxa): {valor_total_txt}\n"
         f"Valor do Brainrot negociado: {valor_brainrot_txt}\n"
         f"Valor da taxa: {valor_taxa_txt}\n"
-        f"Brainrot informado: {nome_brainrot_txt}\n"
         f"Participantes:\n{participantes_txt}"
     )
     logger.info(mensagem)
@@ -497,7 +500,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
 
     participantes_resumo_txt = " ".join(participantes_resumo) if participantes_resumo else "Não informado"
 
-    valor_resumo = valor_brainrot_txt
+    valor_resumo = valor_total_txt
 
     horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
     horario_txt = horario_brasilia.strftime("%d/%m/%Y %H:%M (BRT)")
@@ -516,9 +519,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         value=(
             f"Tipo: `{tipo}`\n"
             f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
-            f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
-            f"Fechado por: {_formatar_mencao_usuario(closed_by_id)}\n"
-            f"Brainrot: {nome_brainrot_txt}"
+            f"Middle: {_formatar_mencao_usuario(middle_id)}"
         ),
         inline=False
     )
