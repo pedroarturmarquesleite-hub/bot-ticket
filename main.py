@@ -14,6 +14,7 @@ import shutil
 import logging
 from logging.handlers import RotatingFileHandler
 import time
+from zoneinfo import ZoneInfo
 
 
 
@@ -498,7 +499,8 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
 
     valor_resumo = valor_brainrot_txt
 
-    horario_txt = discord.utils.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+    horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
+    horario_txt = horario_brasilia.strftime("%d/%m/%Y %H:%M (BRT)")
 
     embed = discord.Embed(
         title=f"🎟️ — {tipo_base} {canal.name} (Automático)",
