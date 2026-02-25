@@ -515,7 +515,6 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         name="📌 Detalhes",
         value=(
             f"Tipo: `{tipo}`\n"
-            f"Canal: {canal.mention}\n"
             f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
             f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
             f"Fechado por: {_formatar_mencao_usuario(closed_by_id)}\n"
