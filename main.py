@@ -1543,6 +1543,8 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
                 ephemeral=True, delete_after=60
             )
             return
+        if estado:
+            estado["etapa"] = "aguardando_pagamento_brainrot_pix"
 
         estado = _estado_negociacao(self.canal.id)
         if estado and estado.get("etapa") != "aguardando_pagamento_brainrot_pix":
@@ -1938,8 +1940,6 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
                 delete_after=60
             )
             return
-        if estado:
-            estado["etapa"] = "aguardando_pagamento_brainrot_pix"
         if estado.get("confirm_msg_id"):
             await interaction.response.send_message(
                 "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
