@@ -3122,6 +3122,13 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 
 @bot.tree.command(name="painel1", description="Enviar painel de tickets")
 async def painel1(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
     await interaction.response.send_message(
         embed=criar_embed_painel(interaction.guild.id if interaction.guild else None),
         view=TicketView()
