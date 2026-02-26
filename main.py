@@ -1783,13 +1783,21 @@ class FecharTicketView(discord.ui.View):
         guild = self.canal.guild
         closed_by_id = interaction.user.id
 
-        try:
-            await enviar_log_fechamento_ticket(guild, self.canal, closed_by_id)
-        except Exception:
-            logger.exception(
-                "Falha ao registrar fechamento de ticket canal_id=%s guild_id=%s",
+        if deve_enviar_log_fechamento(canal_id):
+            try:
+                await enviar_log_fechamento_ticket(guild, self.canal, closed_by_id)
+            except Exception:
+                logger.exception(
+                    "Falha ao registrar fechamento de ticket canal_id=%s guild_id=%s",
+                    canal_id,
+                    guild.id if guild else "desconhecida"
+                )
+        else:
+            logger.info(
+                "Log de fechamento ignorado (ticket nao finalizado) canal_id=%s guild_id=%s tipo=%s",
                 canal_id,
-                guild.id if guild else "desconhecida"
+                guild.id if guild else "desconhecida",
+                ticket_type.get(canal_id, "desconhecido")
             )
 
         # limpa dados do ticket
@@ -1815,6 +1823,17 @@ def _estado_negociacao(canal_id):
     if not isinstance(estado, dict):
         return None
     return estado
+
+
+def deve_enviar_log_fechamento(canal_id):
+    tipo = ticket_type.get(canal_id)
+    estado = _estado_negociacao(canal_id) or {}
+
+    if tipo in {"pix", "brainrot"}:
+        return estado.get("etapa") == "finalizado"
+    if tipo == "trade":
+        return estado.get("trade_etapa") == "finalizado_trade"
+    return False
 
 
 def iniciar_negociacao_trade(canal_id, pessoa1=None, pessoa2=None):
