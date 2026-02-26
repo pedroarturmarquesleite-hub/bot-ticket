@@ -950,15 +950,15 @@ class botd(discord.Client):
 
             await canal.set_permissions(middle, view_channel=True)
             iniciar_negociacao_ticket(canal.id, comprador, vendedor)
-            view_valor = ValorView(canal, vendedor, comprador)
+            view_valor = ValorView(canal, comprador, vendedor)
             msg = await canal.send(
-                f"🔄 Bot reiniciado. {vendedor.mention}, informe o valor para continuar:",
+                f"🔄 Bot reiniciado. {comprador.mention}, informe o valor para continuar:",
                 view=view_valor
             )
             view_valor.msg = msg
             view_brainrot = BrainrotNomeView(canal, comprador, vendedor)
             msg_brainrot = await canal.send(
-                f"🔄 Bot reiniciado. {comprador.mention}, informe qual brainrot será vendido:",
+                f"🔄 Bot reiniciado. {vendedor.mention}, informe qual brainrot será vendido:",
                 view=view_brainrot
             )
             view_brainrot.msg = msg_brainrot
@@ -1864,8 +1864,8 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor, canal.guild.id)
 
     descricao = (
-        f"**Brainrot informado por {comprador.mention}:** `{brainrot_nome}`\n"
-        f"**Valor informado por {vendedor.mention}:** R$ {valor:.2f}\n"
+        f"**Brainrot informado por {vendedor.mention}:** `{brainrot_nome}`\n"
+        f"**Valor informado por {comprador.mention}:** R$ {valor:.2f}\n"
     )
     if ticket_kind != "brainrot":
         descricao += (
@@ -2027,25 +2027,25 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
 
         await self.canal.send(
             f"✅ Valor registrado: R$ {valor:.2f}\n"
-            f"Aguardando o comprador informar o brainrot."
+            f"Aguardando o vendedor informar o brainrot."
         )
         await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
 
 
 class ValorView(discord.ui.View):
-    def __init__(self, canal, vendedor, comprador):
+    def __init__(self, canal, comprador, vendedor):
         super().__init__(timeout=None)
         self.canal = canal
-        self.vendedor = vendedor
         self.comprador = comprador
+        self.vendedor = vendedor
         self.msg = None
 
     @discord.ui.button(label="Informar valor", style=discord.ButtonStyle.blurple)
     async def informar(self, interaction, button):
-        if interaction.user != self.vendedor:
+        if interaction.user != self.comprador:
             await interaction.response.send_message(
-                "Somente vendedor pode informar.",
+                "Somente o comprador pode informar o valor.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -2097,7 +2097,7 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
 
         await self.canal.send(
             f"✅ Brainrot registrado: `{nome}`\n"
-            f"Aguardando o vendedor informar o valor."
+            f"Aguardando o comprador informar o valor."
         )
         await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Brainrot salvo.", ephemeral=True, delete_after=60)
@@ -2113,9 +2113,9 @@ class BrainrotNomeView(discord.ui.View):
 
     @discord.ui.button(label="Informar brainrot", style=discord.ButtonStyle.blurple)
     async def informar_brainrot(self, interaction, button):
-        if interaction.user != self.comprador:
+        if interaction.user != self.vendedor:
             await interaction.response.send_message(
-                "Somente o comprador pode informar o brainrot.",
+                "Somente o vendedor pode informar o brainrot.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -2204,12 +2204,12 @@ class MiddlemanAcceptView(discord.ui.View):
             pass
 
         iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
-        view_valor = ValorView(self.canal, self.vendedor, self.comprador)
-        msg = await self.canal.send(f"{self.vendedor.mention} **informe o valor que irá vender o BrainRot:**", view=view_valor)
+        view_valor = ValorView(self.canal, self.comprador, self.vendedor)
+        msg = await self.canal.send(f"{self.comprador.mention} **informe o valor da negociação:**", view=view_valor)
         view_valor.msg = msg
         view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
         msg_brainrot = await self.canal.send(
-            f"{self.comprador.mention} **informe qual o nome brainrot você vai negociar:**",
+            f"{self.vendedor.mention} **informe qual brainrot será negociado:**",
             view=view_brainrot
         )
         view_brainrot.msg = msg_brainrot
