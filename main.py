@@ -3347,6 +3347,43 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
         interaction.user.id
     )
 
+
+def _fmt_canal_configurado(guild: discord.Guild, channel_id):
+    cid = _id_int(channel_id)
+    if cid is None:
+        return "Não configurado"
+    canal = guild.get_channel(cid)
+    if canal is None:
+        return f"ID `{cid}` (não encontrado)"
+    return f"{canal.mention} (`{cid}`)"
+
+
+@bot.tree.command(name="infocanal", description="Mostra os canais configurados pelos comandos /set")
+async def infocanal(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando só pode ser usado dentro de um servidor.",
+            ephemeral=True
+        )
+        return
+
+    guild = interaction.guild
+    painel_id = get_painel_canal_id(guild.id)
+    aceite_id = get_aceite_canal_id(guild.id)
+    logs_id = get_logs_canal_id(guild.id)
+    categoria_middle_id = get_middle_category_id(guild.id)
+
+    embed = discord.Embed(
+        title="Configuração de canais (/set)",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Painel (/setpainel)", value=_fmt_canal_configurado(guild, painel_id), inline=False)
+    embed.add_field(name="Aceite (/setaceite)", value=_fmt_canal_configurado(guild, aceite_id), inline=False)
+    embed.add_field(name="Logs (/setlogs)", value=_fmt_canal_configurado(guild, logs_id), inline=False)
+    embed.add_field(name="Categoria Middle (/setcmiddle)", value=_fmt_canal_configurado(guild, categoria_middle_id), inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
     await interaction.response.send_message(
         f"Canal de logs configurado com sucesso em {canal.mention}.",
         ephemeral=True, delete_after=60
