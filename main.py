@@ -1873,8 +1873,8 @@ async def tentar_publicar_confirmacao_negociacao(canal):
             f"**Total estimado:** R$ {valor + taxa:.2f}\n"
         )
     descricao += (
-        f"\n{comprador.mention}, confirme o valor.\n"
-        f"{vendedor.mention}, confirme o brainrot."
+        f"\n{vendedor.mention}, confirme o valor.\n"
+        f"{comprador.mention}, confirme o brainrot."
     )
 
     embed = discord.Embed(
@@ -1899,8 +1899,8 @@ class ConfirmarNegociacaoView(discord.ui.View):
         self.valor = valor
         self.valor_confirmado = False
         self.brainrot_confirmado = False
-        self.confirmar_valor.label = f"{self._nome_curto(self.comprador)} confirma valor"
-        self.confirmar_brainrot.label = f"{self._nome_curto(self.vendedor)} confirma brainrot"
+        self.confirmar_valor.label = f"{self._nome_curto(self.vendedor)} confirma valor"
+        self.confirmar_brainrot.label = f"{self._nome_curto(self.comprador)} confirma brainrot"
 
     def _nome_curto(self, membro, limite=18):
         nome = (membro.display_name or membro.name).strip()
@@ -1948,9 +1948,9 @@ class ConfirmarNegociacaoView(discord.ui.View):
     async def confirmar_valor(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_valor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
-        if interaction.user != self.comprador:
+        if interaction.user != self.vendedor:
             await interaction.response.send_message(
-                "Somente o comprador confirma o valor.",
+                "Somente o vendedor confirma o valor.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -1962,9 +1962,9 @@ class ConfirmarNegociacaoView(discord.ui.View):
     async def confirmar_brainrot(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_brainrot", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
-        if interaction.user != self.vendedor:
+        if interaction.user != self.comprador:
             await interaction.response.send_message(
-                "Somente o vendedor confirma o brainrot.",
+                "Somente o comprador confirma o brainrot.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -2939,6 +2939,18 @@ class TicketView(discord.ui.View):
             embed=aviso,
             view=FecharTicketView(canal)
         )
+        aviso_comprovacao = discord.Embed(
+            description=(
+                "**Solicitamos que toda a negociação, bem como a entrega e o recebimento do produto, "
+                "sejam devidamente gravados ou registrados por meio de prints.**\n\n"
+                "Em casos de denúncia por não recebimento, **poderão ser solicitadas provas que comprovem "
+                "a transação e a entrega.**\n\n"
+                "Ressaltamos que, **na ausência dessas comprovações**, o julgamento poderá ser considerado "
+                "insatisfatório para uma das partes."
+            ),
+            color=discord.Color.red()
+        )
+        await canal.send(embed=aviso_comprovacao)
 
         view = TradeSetupView(canal, interaction.user)
         msg = await canal.send("> Você vai **PAGAR** ou **RECEBER** o dinheiro", view=view)
@@ -3001,6 +3013,18 @@ class TicketView(discord.ui.View):
             embed=aviso,
             view=FecharTicketView(canal)
         )
+        aviso_comprovacao = discord.Embed(
+            description=(
+                "Solicitamos que toda a negociação, bem como a entrega e o recebimento do produto, "
+                "sejam devidamente gravados ou registrados por meio de prints.\n\n"
+                "Em casos de denúncia por não recebimento, poderão ser solicitadas provas que comprovem "
+                "a transação e a entrega.\n\n"
+                "Ressaltamos que, na ausência dessas comprovações, o julgamento poderá ser considerado "
+                "insatisfatório para uma das partes."
+            ),
+            color=discord.Color.red()
+        )
+        await canal.send(embed=aviso_comprovacao)
 
         view = TradeSetupView(canal, interaction.user)
         msg = await canal.send("> Você é comprador ou vendedor?", view=view)
@@ -3063,6 +3087,18 @@ class TicketView(discord.ui.View):
             embed=aviso,
             view=FecharTicketView(canal)
         )
+        aviso_comprovacao = discord.Embed(
+            description=(
+                "Solicitamos que toda a negociação, bem como a entrega e o recebimento do produto, "
+                "sejam devidamente gravados ou registrados por meio de prints.\n\n"
+                "Em casos de denúncia por não recebimento, poderão ser solicitadas provas que comprovem "
+                "a transação e a entrega.\n\n"
+                "Ressaltamos que, na ausência dessas comprovações, o julgamento poderá ser considerado "
+                "insatisfatório para uma das partes."
+            ),
+            color=discord.Color.red()
+        )
+        await canal.send(embed=aviso_comprovacao)
 
         view_trade = TradeSetupTradeView(canal, interaction.user)
         msg = await canal.send("> Com quem você vai trocar?", view=view_trade)
