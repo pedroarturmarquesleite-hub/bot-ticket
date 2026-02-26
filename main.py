@@ -2689,7 +2689,34 @@ class TradeSetupView(discord.ui.View):
         self.vendedor = None
         self.escolha_feita = False
 
+    async def _resolver_membro_selecionado(self, interaction: discord.Interaction):
+        try:
+            member_id = int(interaction.data["values"][0])
+        except (TypeError, ValueError, KeyError, IndexError):
+            return None
+
+        membro = interaction.guild.get_member(member_id)
+        if membro is not None:
+            return membro
+
+        try:
+            return await interaction.guild.fetch_member(member_id)
+        except Exception:
+            return None
+
+    async def _garantir_permissoes_partes(self):
+        for membro in (self.comprador, self.vendedor):
+            if membro is None:
+                continue
+            await self.canal.set_permissions(
+                membro,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True
+            )
+
     async def finalizar(self, interaction):
+        await self._garantir_permissoes_partes()
 
         # salva partes do ticket
         salvar_partes_ticket(self.canal.id, self.comprador, self.vendedor)
@@ -2818,15 +2845,21 @@ class TradeSetupView(discord.ui.View):
 
     # -------- seleção vendedor --------
     async def select_vendedor(self, interaction):
-        membro = interaction.guild.get_member(
-            int(interaction.data["values"][0])
-        )
+        membro = await self._resolver_membro_selecionado(interaction)
+        if membro is None:
+            await interaction.response.send_message(
+                "Não consegui localizar esse membro no servidor.",
+                ephemeral=True, delete_after=60
+            )
+            return
 
         self.vendedor = membro
 
         await self.canal.set_permissions(
             membro,
-            view_channel=True
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
         )
 
         await interaction.response.send_message(
@@ -2838,15 +2871,21 @@ class TradeSetupView(discord.ui.View):
 
     # -------- seleção comprador --------
     async def select_comprador(self, interaction):
-        membro = interaction.guild.get_member(
-            int(interaction.data["values"][0])
-        )
+        membro = await self._resolver_membro_selecionado(interaction)
+        if membro is None:
+            await interaction.response.send_message(
+                "Não consegui localizar esse membro no servidor.",
+                ephemeral=True, delete_after=60
+            )
+            return
 
         self.comprador = membro
 
         await self.canal.set_permissions(
             membro,
-            view_channel=True
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
         )
 
         await interaction.response.send_message(
@@ -3383,11 +3422,6 @@ async def infocanal(interaction: discord.Interaction):
     embed.add_field(name="Categoria Middle (/setcmiddle)", value=_fmt_canal_configurado(guild, categoria_middle_id), inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    await interaction.response.send_message(
-        f"Canal de logs configurado com sucesso em {canal.mention}.",
-        ephemeral=True, delete_after=60
-    )
 
 
 @bot.tree.command(name="settaxa", description="Configura os valores da taxa do middle")
