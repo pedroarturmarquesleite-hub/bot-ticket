@@ -431,14 +431,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         if pessoa2_id is not None:
             ids_participantes.add(pessoa2_id)
 
-    # No log de "Participantes", mostramos quem foi adicionado pelo criador.
-    # Por isso removemos criador e middle da lista.
-    if creator_id is not None:
-        ids_participantes.discard(creator_id)
-    if middle_id is not None:
-        ids_participantes.discard(middle_id)
-
-    participantes_txt = "Nenhum participante adicional registrado."
+    participantes_txt = "Nenhum participante registrado."
     if ids_participantes:
         participantes_txt = "\n".join(
             f"- Adicionado: {_formatar_mencao_usuario(uid)}"
@@ -448,7 +441,6 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     mensagem = (
         f"Ticket fechado: {canal.name} (`{canal.id}`)\n"
         f"Tipo: {tipo}\n"
-        f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
         f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
         f"Valor total (valor + taxa): {valor_total_txt}\n"
         f"Valor do Brainrot negociado: {valor_brainrot_txt}\n"
@@ -491,13 +483,8 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         cor = discord.Color.gold()
 
     participantes_resumo = []
-    if creator_id is not None:
-        participantes_resumo.append(f"<@{creator_id}>")
-    if middle_id is not None and middle_id != creator_id:
-        participantes_resumo.append(f"<@{middle_id}>")
     for uid in sorted(ids_participantes):
-        if uid not in {creator_id, middle_id}:
-            participantes_resumo.append(f"<@{uid}>")
+        participantes_resumo.append(f"<@{uid}>")
 
     participantes_resumo_txt = " ".join(participantes_resumo) if participantes_resumo else "Não informado"
 
@@ -518,7 +505,6 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         name="📌 Detalhes",
         value=(
             f"Tipo: `{tipo}`\n"
-            f"Criador: {_formatar_mencao_usuario(creator_id)}\n"
             f"Middle: {_formatar_mencao_usuario(middle_id)}"
         ),
         inline=False
