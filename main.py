@@ -1474,6 +1474,7 @@ class ConfirmarPagamentoView(discord.ui.View):
             return
         if estado:
             estado["etapa"] = "pagamento_middle_processando"
+            estado["log_liberado"] = True
 
         await interaction.response.defer()
         try:
@@ -1520,6 +1521,7 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
             return
         if estado:
             estado["etapa"] = "taxa_brainrot_processando"
+            estado["log_liberado"] = True
 
         await interaction.response.defer()
         try:
@@ -1588,6 +1590,7 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
                 return
             if estado:
                 estado["etapa"] = "pagamento_brainrot_pix_processando"
+                estado["log_liberado"] = True
 
             await interaction.response.defer()
             try:
@@ -1814,7 +1817,8 @@ def iniciar_negociacao_ticket(canal_id, comprador, vendedor):
         "valor": None,
         "brainrot_nome": None,
         "confirm_msg_id": None,
-        "etapa": "coleta_dados"
+        "etapa": "coleta_dados",
+        "log_liberado": False
     }
 
 
@@ -1825,9 +1829,18 @@ def _estado_negociacao(canal_id):
     return estado
 
 
+def liberar_log_fechamento(canal_id):
+    estado = _estado_negociacao(canal_id)
+    if estado is None:
+        return
+    estado["log_liberado"] = True
+
+
 def deve_enviar_log_fechamento(canal_id):
     tipo = ticket_type.get(canal_id)
     estado = _estado_negociacao(canal_id) or {}
+    if estado.get("log_liberado"):
+        return True
 
     if tipo in {"pix", "brainrot"}:
         return estado.get("etapa") == "finalizado"
@@ -2312,6 +2325,7 @@ class ConfirmarPagamentoTradePixView(discord.ui.View):
             return
         if estado:
             estado["trade_etapa"] = "processando_pagamento_pix_trade"
+            estado["log_liberado"] = True
         await interaction.response.defer()
         try:
             await interaction.message.delete()
@@ -2512,6 +2526,7 @@ class ConfirmarTaxaTradeBrainrotView(discord.ui.View):
             return
         if estado:
             estado["trade_etapa"] = "processando_taxa_brainrot_trade"
+            estado["log_liberado"] = True
 
         await interaction.response.defer()
         try:
