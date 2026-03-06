@@ -908,46 +908,36 @@ class botd(discord.Client):
 
             comprador = partes["comprador"]
             vendedor = partes["vendedor"]
+            estado = _estado_negociacao(canal.id)
 
             if middle_id is None:
-                embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 Bot reiniciado. Um middle irá aceitar o ticket em breve...",
-                    color=discord.Color.orange()
-                )
-                msg_loading = await canal.send(embed=embed)
-                ticket_loading_msg[canal.id] = msg_loading
-                await self._avisar_aceite_pix_brainrot(canal, comprador, vendedor)
+                if estado is None:
+                    iniciar_negociacao_ticket(canal.id, comprador, vendedor)
+                    estado = _estado_negociacao(canal.id)
+                if estado:
+                    estado["etapa"] = "aguardando_middle_pix"
+                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind=kind)
                 return
 
             middle = canal.guild.get_member(int(middle_id))
             if middle is None:
                 ticket_middleman.pop(canal.id, None)
                 salvar_estado_tickets()
-                embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 O middle anterior não está disponível. Aguardando novo aceite...",
-                    color=discord.Color.orange()
-                )
-                msg_loading = await canal.send(embed=embed)
-                ticket_loading_msg[canal.id] = msg_loading
-                await self._avisar_aceite_pix_brainrot(canal, comprador, vendedor)
+                if estado is None:
+                    iniciar_negociacao_ticket(canal.id, comprador, vendedor)
+                    estado = _estado_negociacao(canal.id)
+                elif estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"}:
+                    estado["etapa"] = "aguardando_middle_pix"
+                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind=kind)
+                return
+
+            if estado is not None and estado.get("etapa") == "finalizado":
+                return
+            if estado and (estado.get("confirm_msg_id") or estado.get("etapa") not in {"coleta_dados", "aguardando_middle_pix"}):
                 return
 
             await canal.set_permissions(middle, view_channel=True)
-            iniciar_negociacao_ticket(canal.id, comprador, vendedor)
-            view_valor = ValorView(canal, comprador, vendedor)
-            msg = await canal.send(
-                f"🔄 Bot reiniciado. {comprador.mention}, informe o valor para continuar:",
-                view=view_valor
-            )
-            view_valor.msg = msg
-            view_brainrot = BrainrotNomeView(canal, comprador, vendedor)
-            msg_brainrot = await canal.send(
-                f"🔄 Bot reiniciado. {vendedor.mention}, informe qual brainrot será vendido:",
-                view=view_brainrot
-            )
-            view_brainrot.msg = msg_brainrot
+            await self._iniciar_fluxo_pix_brainrot(canal, comprador, vendedor, reiniciado=True)
             return
 
         if kind == "trade":
@@ -957,7 +947,7 @@ class botd(discord.Client):
                 if criador:
                     view_trade = TradeSetupTradeView(canal, criador)
                     msg = await canal.send(
-                        "?? Bot reiniciado. Refa?a a sele??o da pessoa da troca:",
+                        "Bot reiniciado.",
                         view=view_trade
                     )
                     view_trade.message = msg
@@ -2221,17 +2211,33 @@ class MiddlemanAcceptView(discord.ui.View):
         except Exception:
             pass
 
-        iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
-        view_valor = ValorView(self.canal, self.comprador, self.vendedor)
-        msg = await self.canal.send(f"{self.comprador.mention} **informe o valor da negociação:**", view=view_valor)
-        view_valor.msg = msg
-        view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
-        msg_brainrot = await self.canal.send(
-            f"{self.vendedor.mention} **informe qual brainrot será negociado:**",
-            view=view_brainrot
-        )
-        view_brainrot.msg = msg_brainrot
+        ticket_kind = ticket_type.get(self.canal.id, "pix")
+        if ticket_kind in {"pix", "brainrot"}:
+            partes = obter_partes_ticket(self.canal)
+            if not partes:
+                estado = _estado_negociacao(self.canal.id)
+                if estado:
+                    estado["etapa"] = "aguardando_middle_pix"
+                return
 
+            comprador = partes["comprador"]
+            vendedor = partes["vendedor"]
+            estado = _estado_negociacao(self.canal.id)
+
+            if not estado:
+                iniciar_negociacao_ticket(self.canal.id, comprador, vendedor)
+                estado = _estado_negociacao(self.canal.id)
+
+            if estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"} and estado.get("etapa") != "finalizado":
+                return
+            if estado.get("confirm_msg_id"):
+                return
+
+            if estado and estado.get("etapa") == "coleta_dados" and estado.get("valor") is not None:
+                return
+
+            estado["etapa"] = "coleta_dados"
+            await TicketView()._iniciar_fluxo_pix_brainrot(self.canal, comprador, vendedor)
 
 # ---------- CONFIGURAÇÃO TRADE ----------
 class TradeFinalConfirmView(discord.ui.View):
@@ -2578,10 +2584,26 @@ class MiddlemanAcceptTradeView(discord.ui.View):
 
         # Reserva o ticket para este middle antes de qualquer await adicional.
         salvar_middleman_ticket(self.canal.id, interaction.user.id)
-        iniciar_negociacao_trade(self.canal.id, self.pessoa1, self.pessoa2)
-        estado = _estado_negociacao(self.canal.id)
-        if estado:
-            estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
+        if not self.pessoa1 or not self.pessoa2:
+            await interaction.response.defer(ephemeral=True)
+            await self.canal.set_permissions(interaction.user, view_channel=True)
+            await self.canal.send(
+                f"{interaction.user.mention} **aceitou o ticket e aguardará o início completo do atendimento.**"
+            )
+            try:
+                await interaction.followup.send(
+                    "✅ Ticket assumido com sucesso. Aguarde a escolha das partes para seguir com o fluxo.",
+                    ephemeral=True,
+                    view=IrParaTicketView(self.canal)
+                )
+            except Exception:
+                pass
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
+            return
+
         await interaction.response.defer(ephemeral=True)
         await self.canal.set_permissions(interaction.user, view_channel=True)
 
@@ -2612,10 +2634,13 @@ class MiddlemanAcceptTradeView(discord.ui.View):
         except Exception:
             pass
 
-        await self.canal.send(
-            "Qual a taxa da trade? (Pix ou Brainrot)",
-            view=TradeTaxaEscolhaView(self.canal, self.pessoa1, self.pessoa2, interaction.user.id)
-        )
+        estado = _estado_negociacao(self.canal.id)
+        if estado and estado.get("trade_etapa") == "aguardando_middle_trade":
+            estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
+            await self.canal.send(
+                "Qual a taxa da trade? (Pix ou Brainrot)",
+                view=TradeTaxaEscolhaView(self.canal, self.pessoa1, self.pessoa2, interaction.user.id)
+            )
 
 
 class TradeSetupTradeView(discord.ui.View):
@@ -2660,8 +2685,6 @@ class TradeSetupTradeView(discord.ui.View):
         salvar_partes_trade(self.canal.id, self.criador, membro)
         iniciar_negociacao_trade(self.canal.id, self.criador, membro)
         estado = _estado_negociacao(self.canal.id)
-        if estado:
-            estado["trade_etapa"] = "aguardando_middle_trade"
 
         await self.message.edit(
             content=f"Pessoa 1: {self.criador.mention}\nPessoa 2: {membro.mention}",
@@ -2669,29 +2692,23 @@ class TradeSetupTradeView(discord.ui.View):
         )
         await interaction.response.send_message("Pessoa adicionada.", ephemeral=True, delete_after=60)
 
-        embed = discord.Embed(
-            title="⏳ Aguardando Middle Man",
-            description="🔄 Um middle irá aceitar o ticket em breve...",
-            color=discord.Color.orange()
-        )
-        msg_loading = await self.canal.send(embed=embed)
-        ticket_loading_msg[self.canal.id] = msg_loading
+        middle_id = ticket_middleman.get(self.canal.id)
+        if middle_id is not None:
+            middle = self.canal.guild.get_member(int(middle_id))
+            if middle is not None:
+                await self.canal.set_permissions(middle, view_channel=True)
+                if estado:
+                    estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
+                await self.canal.send(
+                    "Qual a taxa da trade? (Pix ou Brainrot)",
+                    view=TradeTaxaEscolhaView(self.canal, self.criador, membro, middle.id)
+                )
+                return
+            ticket_middleman.pop(self.canal.id, None)
+            salvar_estado_tickets()
 
-        aceite_channel = None
-        aceite_canal_id = get_aceite_canal_id(self.canal.guild.id)
-        if aceite_canal_id:
-            try:
-                aceite_channel = self.canal.guild.get_channel(int(aceite_canal_id))
-            except (TypeError, ValueError):
-                aceite_channel = None
-
-        if isinstance(aceite_channel, discord.TextChannel):
-            await aceite_channel.send(
-                f"Ticket aguardando MM (Trade): {self.canal.mention}",
-                view=MiddlemanAcceptTradeView(self.canal, self.criador, membro)
-            )
-        else:
-            await self.canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+        if estado:
+            estado["trade_etapa"] = "aguardando_middle_trade"
 
 
 class TradeSetupView(discord.ui.View):
@@ -2740,41 +2757,51 @@ class TradeSetupView(discord.ui.View):
             content=f"Comprador: {self.comprador.mention}\nVendedor: {self.vendedor.mention}",
             view=None
         )
+        estado = _estado_negociacao(self.canal.id)
+        if not estado:
+            iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
+            estado = _estado_negociacao(self.canal.id)
 
-        embed = discord.Embed(
-            title="⏳ Aguardando Middle Man",
-            description="🔄 Um middle irá aceitar o ticket em breve...",
-            color=discord.Color.orange()
-        )
+        if estado.get("confirm_msg_id"):
+            return
+        if estado.get("etapa") == "finalizado":
+            return
 
-        msg_loading = await self.canal.send(embed=embed)
+        middle_id = ticket_middleman.get(self.canal.id)
+        if middle_id is None:
+            estado["etapa"] = "aguardando_middle_pix"
+            return
 
-        # salva loading
-        ticket_loading_msg[self.canal.id] = msg_loading
-
-        aceite_channel = None
-        aceite_canal_id = get_aceite_canal_id(self.canal.guild.id)
-        if aceite_canal_id:
-            try:
-                aceite_channel = self.canal.guild.get_channel(int(aceite_canal_id))
-            except (TypeError, ValueError):
-                aceite_channel = None
-
-        if isinstance(aceite_channel, discord.TextChannel):
-            ticket_kind = ticket_type.get(self.canal.id, "pix")
-            tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
-            await aceite_channel.send(
-                f"Ticket aguardando MM ({tipo_middle}): {self.canal.mention}",
-                view=MiddlemanAcceptView(
-                    self.canal,
-                    self.comprador,
-                    self.vendedor
-                )
-            )
-        else:
+        middle = self.canal.guild.get_member(int(middle_id))
+        if middle is None:
+            ticket_middleman.pop(self.canal.id, None)
+            salvar_estado_tickets()
+            if estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"}:
+                estado["etapa"] = "aguardando_middle_pix"
             await self.canal.send(
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`."
+                "⚠️ O Middle responsável não foi encontrado, aguardando novo aceite."
             )
+            return
+
+        if estado.get("etapa") == "coleta_dados" and estado.get("valor") is not None:
+            return
+
+        await self.canal.set_permissions(middle, view_channel=True)
+
+        estado["etapa"] = "coleta_dados"
+        view_valor = ValorView(self.canal, self.comprador, self.vendedor)
+        msg_valor = await self.canal.send(
+            f"{self.comprador.mention} **informe o valor da negociação:**",
+            view=view_valor
+        )
+        view_valor.msg = msg_valor
+
+        view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
+        msg_brainrot = await self.canal.send(
+            f"{self.vendedor.mention} **informe qual brainrot será negociado:**",
+            view=view_brainrot
+        )
+        view_brainrot.msg = msg_brainrot
 
     # -------- botão comprador --------
     @discord.ui.button(label="Vou Pagar/Comprador", style=discord.ButtonStyle.blurple)
@@ -2964,6 +2991,47 @@ class TicketView(discord.ui.View):
 
         return await guild.create_category(nome_categoria)
 
+    async def _avisar_middles_no_canal(self, canal, comprador=None, vendedor=None, ticket_kind="pix"):
+        embed = discord.Embed(
+            title="⏳ Aguardando Middle Man",
+            description="🔄 Um Middle irá aceitar o ticket em breve...",
+            color=discord.Color.orange()
+        )
+        msg_loading = await canal.send(embed=embed)
+        ticket_loading_msg[canal.id] = msg_loading
+
+        if ticket_kind == "trade":
+            await self._avisar_aceite_trade(canal, comprador, vendedor)
+            return
+
+        await self._avisar_aceite_pix_brainrot(canal, comprador, vendedor)
+
+    async def _iniciar_fluxo_pix_brainrot(self, canal, comprador, vendedor, reiniciado=False):
+        iniciar_negociacao_ticket(canal.id, comprador, vendedor)
+        estado = _estado_negociacao(canal.id)
+
+        if estado and estado.get("etapa") == "finalizado":
+            return
+
+        if estado:
+            estado["etapa"] = "coleta_dados"
+            estado["confirm_msg_id"] = None
+
+        view_valor = ValorView(canal, comprador, vendedor)
+        view_brainrot = BrainrotNomeView(canal, comprador, vendedor)
+        prefixo = "🔄 Bot reiniciado. " if reiniciado else ""
+        msg_valor = await canal.send(
+            f"{prefixo}{comprador.mention} **informe o valor da negociação:**",
+            view=view_valor
+        )
+        view_valor.msg = msg_valor
+
+        msg_brainrot = await canal.send(
+            f"{prefixo}{vendedor.mention} **informe qual brainrot será negociado:**",
+            view=view_brainrot
+        )
+        view_brainrot.msg = msg_brainrot
+
     async def criar_ticket_middleman_pix(self, interaction):
         numero_ticket = self.proximo_numero_ticket_pix(interaction.guild)
 
@@ -3014,6 +3082,7 @@ class TicketView(discord.ui.View):
         view = TradeSetupView(canal, interaction.user)
         msg = await canal.send("> Você vai **PAGAR** ou **RECEBER** o dinheiro", view=view)
         view.message = msg
+        await self._avisar_middles_no_canal(canal, ticket_kind="pix")
 
         embed = discord.Embed(
             description=(
@@ -3088,6 +3157,7 @@ class TicketView(discord.ui.View):
         view = TradeSetupView(canal, interaction.user)
         msg = await canal.send("> Você é comprador ou vendedor?", view=view)
         view.message = msg
+        await self._avisar_middles_no_canal(canal, ticket_kind="brainrot")
 
         embed = discord.Embed(
             description=(
@@ -3162,6 +3232,7 @@ class TicketView(discord.ui.View):
         view_trade = TradeSetupTradeView(canal, interaction.user)
         msg = await canal.send("> Com quem você vai trocar?", view=view_trade)
         view_trade.message = msg
+        await self._avisar_middles_no_canal(canal, ticket_kind="trade")
 
         embed = discord.Embed(
             description=(
