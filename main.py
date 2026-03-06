@@ -3135,6 +3135,9 @@ class TicketView(discord.ui.View):
         view_brainrot.msg = msg_brainrot
 
     async def criar_ticket_middleman_pix(self, interaction):
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         numero_ticket = self.proximo_numero_ticket_pix(interaction.guild)
 
         overwrites = {
@@ -3202,13 +3205,16 @@ class TicketView(discord.ui.View):
             )
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             view=link_view,
             ephemeral=True, delete_after=60
         )
 
     async def criar_ticket_middleman_brainrot(self, interaction):
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         nome_canal = self.proximo_nome_ticket(interaction.guild, "💠-ticket-middle-brainrot")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -3277,13 +3283,16 @@ class TicketView(discord.ui.View):
             )
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             view=link_view,
             ephemeral=True, delete_after=60
         )
 
     async def criar_ticket_middleman_trade(self, interaction):
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         nome_canal = self.proximo_nome_ticket(interaction.guild, "💱-ticket-middle-trade")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -3352,7 +3361,7 @@ class TicketView(discord.ui.View):
             )
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             view=link_view,
             ephemeral=True, delete_after=60
