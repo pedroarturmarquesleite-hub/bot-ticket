@@ -2973,6 +2973,78 @@ class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
+        aceite_canal_id = get_aceite_canal_id(canal.guild.id)
+        if not aceite_canal_id:
+            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            return
+
+        try:
+            channel_id = int(aceite_canal_id)
+        except (TypeError, ValueError):
+            channel_id = None
+
+        aceite_channel = None
+        if channel_id is not None:
+            aceite_channel = canal.guild.get_channel(channel_id)
+            if aceite_channel is None:
+                try:
+                    aceite_channel = await canal.guild.fetch_channel(channel_id)
+                except (discord.HTTPException, discord.NotFound, discord.Forbidden):
+                    aceite_channel = None
+
+        if not isinstance(aceite_channel, discord.TextChannel):
+            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            return
+
+        ticket_kind = ticket_type.get(canal.id, "pix")
+        tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
+        try:
+            await aceite_channel.send(
+                f"Ticket aguardando MM ({tipo_middle}): {canal.mention}",
+                view=MiddlemanAcceptView(canal, comprador, vendedor)
+            )
+        except discord.Forbidden:
+            await canal.send(
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
+                "Verifique se o bot tem permissão de envio de mensagens."
+            )
+
+    async def _avisar_aceite_trade(self, canal, pessoa1, pessoa2):
+        aceite_canal_id = get_aceite_canal_id(canal.guild.id)
+        if not aceite_canal_id:
+            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            return
+
+        try:
+            channel_id = int(aceite_canal_id)
+        except (TypeError, ValueError):
+            channel_id = None
+
+        aceite_channel = None
+        if channel_id is not None:
+            aceite_channel = canal.guild.get_channel(channel_id)
+            if aceite_channel is None:
+                try:
+                    aceite_channel = await canal.guild.fetch_channel(channel_id)
+                except (discord.HTTPException, discord.NotFound, discord.Forbidden):
+                    aceite_channel = None
+
+        if not isinstance(aceite_channel, discord.TextChannel):
+            await canal.send("⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.")
+            return
+
+        try:
+            await aceite_channel.send(
+                f"Ticket aguardando MM (Trade): {canal.mention}",
+                view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
+            )
+        except discord.Forbidden:
+            await canal.send(
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
+                "Verifique se o bot tem permissão de envio de mensagens."
+            )
+
     def proximo_numero_ticket_pix(self, guild):
         guild_id = guild.id
 
