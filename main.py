@@ -2612,6 +2612,13 @@ class MiddlemanAcceptTradeView(discord.ui.View):
                 )
             return
 
+        # Recarrega as partes em tempo real, pois o botão pode ter sido criado
+        # antes da pessoa 2 ser adicionada ao ticket.
+        partes_trade = obter_partes_trade(self.canal)
+        if partes_trade:
+            self.pessoa1 = partes_trade.get("pessoa1")
+            self.pessoa2 = partes_trade.get("pessoa2")
+
         # Reserva o ticket para este middle antes de qualquer await adicional.
         salvar_middleman_ticket(self.canal.id, interaction.user.id)
         if not self.pessoa1 or not self.pessoa2:
