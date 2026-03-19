@@ -907,8 +907,9 @@ class botd(discord.Client):
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
+                content=mencao_middle,
                 embed=embed_fluxo(
-                    f"{mencao_middle}\nTicket aguardando MM ({tipo_middle}): {canal.mention}",
+                    f"Ticket aguardando MM ({tipo_middle}): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
@@ -957,8 +958,9 @@ class botd(discord.Client):
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
+                content=mencao_middle,
                 embed=embed_fluxo(
-                    f"{mencao_middle}\nTicket aguardando MM (Trade): {canal.mention}",
+                    f"Ticket aguardando MM (Trade): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
@@ -2106,12 +2108,12 @@ class ConfirmarNegociacaoView(discord.ui.View):
 class ValorModal(discord.ui.Modal, title="Valor da negociação"):
     valor = discord.ui.TextInput(label="Digite o valor")
 
-    def __init__(self, canal, mensagem, comprador, vendedor):
+    def __init__(self, canal, comprador, vendedor, origem_view=None):
         super().__init__()
         self.canal = canal
-        self.mensagem = mensagem
         self.comprador = comprador
         self.vendedor = vendedor
+        self.origem_view = origem_view
 
     async def on_submit(self, interaction):
         try:
@@ -2150,17 +2152,14 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
             return
         estado["valor"] = valor
 
-        try:
-            await self.mensagem.delete()
-        except Exception:
-            pass
-
         await enviar_fluxo(
             self.canal,
             f"✅ Valor registrado: R$ {valor:.2f}\n"
             f"Aguardando o vendedor informar o brainrot.",
             cor=discord.Color.green()
         )
+        if self.origem_view is not None:
+            await self.origem_view.marcar_valor_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
 
@@ -2182,19 +2181,19 @@ class ValorView(discord.ui.View):
             )
             return
         await interaction.response.send_modal(
-            ValorModal(self.canal, self.msg, self.comprador, self.vendedor)
+            ValorModal(self.canal, self.comprador, self.vendedor)
         )
 
 
 class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
     brainrot_nome = discord.ui.TextInput(label="Qual brainrot será vendido?", max_length=120)
 
-    def __init__(self, canal, mensagem, comprador, vendedor):
+    def __init__(self, canal, comprador, vendedor, origem_view=None):
         super().__init__()
         self.canal = canal
-        self.mensagem = mensagem
         self.comprador = comprador
         self.vendedor = vendedor
+        self.origem_view = origem_view
 
     async def on_submit(self, interaction):
         nome = self.brainrot_nome.value.strip()
@@ -2222,17 +2221,14 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
             return
         estado["brainrot_nome"] = nome
 
-        try:
-            await self.mensagem.delete()
-        except Exception:
-            pass
-
         await enviar_fluxo(
             self.canal,
             f"✅ Brainrot registrado: `{nome}`\n"
             f"Aguardando o comprador informar o valor.",
             cor=discord.Color.green()
         )
+        if self.origem_view is not None:
+            await self.origem_view.marcar_brainrot_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Brainrot salvo.", ephemeral=True, delete_after=60)
 
@@ -2254,7 +2250,67 @@ class BrainrotNomeView(discord.ui.View):
             )
             return
         await interaction.response.send_modal(
-            BrainrotNomeModal(self.canal, self.msg, self.comprador, self.vendedor)
+            BrainrotNomeModal(self.canal, self.comprador, self.vendedor)
+        )
+
+
+class NegociacaoDadosView(discord.ui.View):
+    def __init__(self, canal, comprador, vendedor):
+        super().__init__(timeout=None)
+        self.canal = canal
+        self.comprador = comprador
+        self.vendedor = vendedor
+        self.message = None
+        self._valor_preenchido = False
+        self._brainrot_preenchido = False
+
+    async def _atualizar_view(self):
+        if self.message is None:
+            return
+        try:
+            if len(self.children) == 0:
+                await self.message.edit(view=None)
+            else:
+                await self.message.edit(view=self)
+        except Exception:
+            pass
+
+    async def marcar_valor_preenchido(self):
+        if self._valor_preenchido:
+            return
+        self._valor_preenchido = True
+        self.remove_item(self.informar_valor)
+        await self._atualizar_view()
+
+    async def marcar_brainrot_preenchido(self):
+        if self._brainrot_preenchido:
+            return
+        self._brainrot_preenchido = True
+        self.remove_item(self.informar_brainrot)
+        await self._atualizar_view()
+
+    @discord.ui.button(label="Informar valor", style=discord.ButtonStyle.blurple)
+    async def informar_valor(self, interaction, button):
+        if interaction.user != self.comprador:
+            await interaction.response.send_message(
+                "Somente o comprador pode informar o valor.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        await interaction.response.send_modal(
+            ValorModal(self.canal, self.comprador, self.vendedor, origem_view=self)
+        )
+
+    @discord.ui.button(label="Informar brainrot", style=discord.ButtonStyle.blurple)
+    async def informar_brainrot(self, interaction, button):
+        if interaction.user != self.vendedor:
+            await interaction.response.send_message(
+                "Somente o vendedor pode informar o brainrot.",
+                ephemeral=True, delete_after=60
+            )
+            return
+        await interaction.response.send_modal(
+            BrainrotNomeModal(self.canal, self.comprador, self.vendedor, origem_view=self)
         )
 
 
@@ -2942,23 +2998,17 @@ class TradeSetupView(discord.ui.View):
         await self.canal.set_permissions(middle, view_channel=True)
 
         estado["etapa"] = "coleta_dados"
-        view_valor = ValorView(self.canal, self.comprador, self.vendedor)
-        msg_valor = await enviar_fluxo(
+        view_dados = NegociacaoDadosView(self.canal, self.comprador, self.vendedor)
+        msg_dados = await enviar_fluxo(
             self.canal,
-            f"{self.comprador.mention} **informe o valor da negociação:**",
-            view=view_valor,
+            (
+                f"{self.comprador.mention} **informe o valor da negociação.**\n"
+                f"{self.vendedor.mention} **informe qual brainrot será negociado.**"
+            ),
+            view=view_dados,
             cor=discord.Color.orange()
         )
-        view_valor.msg = msg_valor
-
-        view_brainrot = BrainrotNomeView(self.canal, self.comprador, self.vendedor)
-        msg_brainrot = await enviar_fluxo(
-            self.canal,
-            f"{self.vendedor.mention} **informe qual brainrot será negociado:**",
-            view=view_brainrot,
-            cor=discord.Color.orange()
-        )
-        view_brainrot.msg = msg_brainrot
+        view_dados.message = msg_dados
 
     # -------- botão comprador --------
     @discord.ui.button(label="Vou Pagar/Comprador", style=discord.ButtonStyle.blurple)
@@ -3138,8 +3188,9 @@ class TicketView(discord.ui.View):
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
+                content=mencao_middle,
                 embed=embed_fluxo(
-                    f"{mencao_middle}\nTicket aguardando MM ({tipo_middle}): {canal.mention}",
+                    f"Ticket aguardando MM ({tipo_middle}): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
@@ -3188,8 +3239,9 @@ class TicketView(discord.ui.View):
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
+                content=mencao_middle,
                 embed=embed_fluxo(
-                    f"{mencao_middle}\nTicket aguardando MM (Trade): {canal.mention}",
+                    f"Ticket aguardando MM (Trade): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
@@ -3276,24 +3328,18 @@ class TicketView(discord.ui.View):
             estado["etapa"] = "coleta_dados"
             estado["confirm_msg_id"] = None
 
-        view_valor = ValorView(canal, comprador, vendedor)
-        view_brainrot = BrainrotNomeView(canal, comprador, vendedor)
         prefixo = "🔄 Bot reiniciado. " if reiniciado else ""
-        msg_valor = await enviar_fluxo(
+        view_dados = NegociacaoDadosView(canal, comprador, vendedor)
+        msg_dados = await enviar_fluxo(
             canal,
-            f"{prefixo}{comprador.mention} **informe o valor da negociação:**",
-            view=view_valor,
+            (
+                f"{prefixo}{comprador.mention} **informe o valor da negociação.**\n"
+                f"{vendedor.mention} **informe qual brainrot será negociado.**"
+            ),
+            view=view_dados,
             cor=discord.Color.orange()
         )
-        view_valor.msg = msg_valor
-
-        msg_brainrot = await enviar_fluxo(
-            canal,
-            f"{prefixo}{vendedor.mention} **informe qual brainrot será negociado:**",
-            view=view_brainrot,
-            cor=discord.Color.orange()
-        )
-        view_brainrot.msg = msg_brainrot
+        view_dados.message = msg_dados
 
     async def criar_ticket_middleman_pix(self, interaction):
         if not interaction.response.is_done():
