@@ -55,6 +55,14 @@ VALOR_MAXIMO_OPERACAO = 1_000_000.0
 COOLDOWN_ABRIR_TICKET_SEGUNDOS = 15
 COOLDOWN_CLIQUE_CRITICO_SEGUNDOS = 3
 cooldown_user_actions = {}
+PALETA_CORES = {
+    "primario": "#FB8C00",
+    "info": "#FF9800",
+    "sucesso": "#EF6C00",
+    "aviso": "#E65100",
+    "erro": "#C62828",
+    "destaque": "#F4511E"
+}
 
 
 def migrar_arquivo_legado(destino, legados):
@@ -139,11 +147,16 @@ async def em_cooldown(interaction: discord.Interaction, action: str, segundos: i
     return False
 
 
+def cor_paleta(chave: str = "primario") -> discord.Color:
+    hex_cor = PALETA_CORES.get(chave, PALETA_CORES["primario"])
+    return discord.Color.from_str(hex_cor)
+
+
 def embed_fluxo(descricao: str, titulo: str | None = None, cor: discord.Color | None = None) -> discord.Embed:
     embed = discord.Embed(
         title=titulo,
         description=descricao,
-        color=cor or discord.Color.blurple()
+        color=cor or cor_paleta("primario")
     )
     return embed
 
@@ -501,13 +514,13 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
         return
 
     tipo_base = "Troca venda/compra"
-    cor = discord.Color.blurple()
+    cor = cor_paleta("primario")
     if tipo == "brainrot":
         tipo_base = "Troca de Brainrot"
-        cor = discord.Color.orange()
+        cor = cor_paleta("aviso")
     elif tipo == "trade":
         tipo_base = "Trade"
-        cor = discord.Color.gold()
+        cor = cor_paleta("destaque")
 
     participantes_resumo = []
     for uid in sorted(ids_participantes):
@@ -2263,6 +2276,14 @@ class NegociacaoDadosView(discord.ui.View):
         self.message = None
         self._valor_preenchido = False
         self._brainrot_preenchido = False
+        self.informar_valor.label = f"{self._nome_curto(self.comprador)} Informe o valor"
+        self.informar_brainrot.label = f"{self._nome_curto(self.vendedor)} Informe o brainrot"
+
+    def _nome_curto(self, membro, limite=20):
+        nome = (membro.display_name or membro.name).strip()
+        if len(nome) <= limite:
+            return nome
+        return nome[:limite - 3] + "..."
 
     async def _atualizar_view(self):
         if self.message is None:
