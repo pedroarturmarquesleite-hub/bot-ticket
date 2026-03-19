@@ -903,10 +903,12 @@ class botd(discord.Client):
 
         ticket_kind = ticket_type.get(canal.id, "pix")
         tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
+        role_middle = get_middle_role(canal.guild)
+        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
                 embed=embed_fluxo(
-                    f"Ticket aguardando MM ({tipo_middle}): {canal.mention}",
+                    f"{mencao_middle}\nTicket aguardando MM ({tipo_middle}): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
@@ -951,10 +953,12 @@ class botd(discord.Client):
             )
             return
 
+        role_middle = get_middle_role(canal.guild)
+        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
                 embed=embed_fluxo(
-                    f"Ticket aguardando MM (Trade): {canal.mention}",
+                    f"{mencao_middle}\nTicket aguardando MM (Trade): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
@@ -1169,11 +1173,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_qr.set_image(url="attachment://pix_total.png")
         await canal.send(embed=embed_qr, file=file)
-        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
-            view=ConfirmarPagamentoView(canal, comprador, vendedor),
+            view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola),
             cor=discord.Color.orange()
         )
         return True, None
@@ -1215,11 +1218,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         embed_taxa.set_image(url="attachment://pix_taxa.png")
         await canal.send(embed=embed_taxa, file=file_taxa)
         await canal.send(view=PixCopiaColaView(pix_copia_cola_taxa))
-
         await enviar_fluxo(
             canal,
             "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
-            view=ConfirmarPagamentoView(canal, comprador, vendedor),
+            view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola_item),
             cor=discord.Color.orange()
         )
         return True, None
@@ -1526,13 +1528,23 @@ class TaxaView(discord.ui.View):
             estado["etapa"] = "aguardando_pagamento_middle"
 
 class ConfirmarPagamentoView(discord.ui.View):
-    def __init__(self, canal, comprador, vendedor):
+    def __init__(self, canal, comprador, vendedor, pix_copia_cola=None):
         super().__init__(timeout=None)
         self.canal = canal
         self.comprador = comprador
         self.vendedor = vendedor
+        self.pix_copia_cola = pix_copia_cola
+        if not self.pix_copia_cola:
+            self.remove_item(self.copiar_codigo)
 
-    @discord.ui.button(label="Confirmar Taxa ( MM )", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📋 Copiar código Pix", style=discord.ButtonStyle.green, row=0)
+    async def copiar_codigo(self, interaction, button):
+        await interaction.response.send_message(
+            f"`{self.pix_copia_cola}`",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Confirmar Taxa ( MM )", style=discord.ButtonStyle.secondary, row=0)
     async def confirmar_pagamento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_pagamento_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -3122,10 +3134,12 @@ class TicketView(discord.ui.View):
 
         ticket_kind = ticket_type.get(canal.id, "pix")
         tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
+        role_middle = get_middle_role(canal.guild)
+        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
                 embed=embed_fluxo(
-                    f"Ticket aguardando MM ({tipo_middle}): {canal.mention}",
+                    f"{mencao_middle}\nTicket aguardando MM ({tipo_middle}): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
@@ -3170,10 +3184,12 @@ class TicketView(discord.ui.View):
             )
             return
 
+        role_middle = get_middle_role(canal.guild)
+        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
             await aceite_channel.send(
                 embed=embed_fluxo(
-                    f"Ticket aguardando MM (Trade): {canal.mention}",
+                    f"{mencao_middle}\nTicket aguardando MM (Trade): {canal.mention}",
                     cor=discord.Color.orange()
                 ),
                 view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
@@ -3331,6 +3347,7 @@ class TicketView(discord.ui.View):
         )
         await canal.send(embed=aviso_comprovacao)
 
+        await self._avisar_middles_no_canal(canal, ticket_kind="pix")
         view = TradeSetupView(canal, interaction.user)
         msg = await enviar_fluxo(
             canal,
@@ -3339,7 +3356,6 @@ class TicketView(discord.ui.View):
             cor=discord.Color.blurple()
         )
         view.message = msg
-        await self._avisar_middles_no_canal(canal, ticket_kind="pix")
 
         embed = discord.Embed(
             description=(
@@ -3416,6 +3432,7 @@ class TicketView(discord.ui.View):
         )
         await canal.send(embed=aviso_comprovacao)
 
+        await self._avisar_middles_no_canal(canal, ticket_kind="brainrot")
         view = TradeSetupView(canal, interaction.user)
         msg = await enviar_fluxo(
             canal,
@@ -3424,7 +3441,6 @@ class TicketView(discord.ui.View):
             cor=discord.Color.blurple()
         )
         view.message = msg
-        await self._avisar_middles_no_canal(canal, ticket_kind="brainrot")
 
         embed = discord.Embed(
             description=(
