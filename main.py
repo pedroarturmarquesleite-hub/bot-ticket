@@ -1169,12 +1169,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_qr.set_image(url="attachment://pix_total.png")
         await canal.send(embed=embed_qr, file=file)
-        await enviar_fluxo(
-            canal,
-            "📋 Código Pix copia e cola:",
-            view=PixCopiaColaView(pix_copia_cola),
-            cor=discord.Color.teal()
-        )
+        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
@@ -1203,12 +1198,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_item.set_image(url="attachment://pix_item.png")
         await canal.send(embed=embed_item, file=file_item)
-        await enviar_fluxo(
-            canal,
-            "📋 Código Pix copia e cola (item):",
-            view=PixCopiaColaView(pix_copia_cola_item),
-            cor=discord.Color.teal()
-        )
+        await canal.send(view=PixCopiaColaView(pix_copia_cola_item))
 
         qr_taxa = gerar_qrcode_pix(pix_key, taxa)
         pix_copia_cola_taxa = gerar_payload_pix(pix_key, valor=f"{taxa:.2f}")
@@ -1224,12 +1214,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_taxa.set_image(url="attachment://pix_taxa.png")
         await canal.send(embed=embed_taxa, file=file_taxa)
-        await enviar_fluxo(
-            canal,
-            "📋 Código Pix copia e cola (taxa):",
-            view=PixCopiaColaView(pix_copia_cola_taxa),
-            cor=discord.Color.teal()
-        )
+        await canal.send(view=PixCopiaColaView(pix_copia_cola_taxa))
 
         await enviar_fluxo(
             canal,
@@ -1258,12 +1243,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_qr.set_image(url="attachment://pix_item_brainrot.png")
         await canal.send(embed=embed_qr, file=file)
-        await enviar_fluxo(
-            canal,
-            "📋 Código Pix copia e cola:",
-            view=PixCopiaColaView(pix_copia_cola),
-            cor=discord.Color.teal()
-        )
+        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "⏳ Aguardando pagamento do comprador...",
@@ -1291,12 +1271,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed.set_image(url="attachment://trade_pix.png")
         await canal.send(embed=embed, file=file)
-        await enviar_fluxo(
-            canal,
-            "📋 Código Pix copia e cola:",
-            view=PixCopiaColaView(pix_copia_cola),
-            cor=discord.Color.teal()
-        )
+        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "Aguardando confirmação de pagamento...",
@@ -1383,7 +1358,7 @@ class PixCopiaColaView(discord.ui.View):
         super().__init__(timeout=None)
         self.payload = payload
 
-    @discord.ui.button(label="📋 Copiar código Pix", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📋 Copiar código Pix", style=discord.ButtonStyle.green)
     async def copiar_codigo(self, interaction, button):
         await interaction.response.send_message(
             f"`{self.payload}`",
@@ -1557,7 +1532,7 @@ class ConfirmarPagamentoView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="✅ Recebi o pagamento", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Confirmar Taxa ( MM )", style=discord.ButtonStyle.secondary)
     async def confirmar_pagamento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_pagamento_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -3909,10 +3884,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     embed.set_image(url="attachment://cobranca_pix.png")
 
     await interaction.response.send_message(embed=embed, file=file)
-    await interaction.followup.send(
-        "📋 Código Pix copia e cola:",
-        view=PixCopiaColaView(pix_copia_cola)
-    )
+    await interaction.followup.send(view=PixCopiaColaView(pix_copia_cola))
 
 
 token = os.getenv("DISCORD_TOKEN")
