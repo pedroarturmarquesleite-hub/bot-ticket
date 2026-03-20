@@ -2096,7 +2096,6 @@ class ConfirmarPagamentoView(discord.ui.View):
                 return
             if estado:
                 estado["etapa"] = "pagamento_middle_processando"
-                estado["log_liberado"] = True
 
             await interaction.response.defer()
             try:
@@ -2149,7 +2148,6 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
                 return
             if estado:
                 estado["etapa"] = "taxa_brainrot_processando"
-                estado["log_liberado"] = True
 
             await interaction.response.defer()
             try:
@@ -2234,7 +2232,6 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
                     return
                 if estado:
                     estado["etapa"] = "pagamento_brainrot_pix_processando"
-                    estado["log_liberado"] = True
 
                 await interaction.response.defer()
                 try:
@@ -2411,7 +2408,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
                 color=cor_paleta("sucesso")
             )
 
-            await self.canal.send(embed=embed_finalizado)
+            await self.canal.send(embed=embed_finalizado, view=FinalizarTicketView(self.canal))
             if estado:
                 estado["etapa"] = "finalizado"
 
@@ -2419,6 +2416,51 @@ class FecharTicketView(discord.ui.View):
     def __init__(self, canal):
         super().__init__(timeout=None)
         self.canal = canal
+
+    async def _processar_fechamento(self, interaction, texto_inicio: str, *, forcar_log: bool = False, permitir_admin: bool = True):
+        middle_id = ticket_middleman.get(self.canal.id)
+        is_admin = interaction.user.guild_permissions.administrator
+
+        autorizado = interaction.user.id == middle_id or (permitir_admin and is_admin)
+        if not autorizado:
+            msg_permissao = "Apenas o Middle que assumiu o ticket pode finalizar."
+            if permitir_admin:
+                msg_permissao = "Apenas o Middle que assumiu o ticket ou um administrador pode fechar."
+            await interaction.response.send_message(
+                msg_permissao,
+                ephemeral=True, delete_after=60
+            )
+            return
+
+        await interaction.response.send_message(
+            texto_inicio,
+            ephemeral=True, delete_after=60
+        )
+
+        canal_id = self.canal.id
+        guild = self.canal.guild
+        if forcar_log or deve_enviar_log_fechamento(canal_id):
+            try:
+                await enviar_log_fechamento_ticket(guild, self.canal)
+            except Exception:
+                logger.exception(
+                    "Falha ao registrar fechamento de ticket canal_id=%s guild_id=%s",
+                    canal_id,
+                    guild.id if guild else "desconhecida"
+                )
+        else:
+            logger.info(
+                "Log de fechamento ignorado (ticket nao finalizado) canal_id=%s guild_id=%s tipo=%s",
+                canal_id,
+                guild.id if guild else "desconhecida",
+                ticket_type.get(canal_id, "desconhecido")
+            )
+
+        # limpa dados do ticket
+        remover_estado_ticket(canal_id)
+
+        # deleta canal
+        await self.canal.delete()
 
     @discord.ui.button(label="🔒 Fechar Ticket", style=ESTILO_BOTAO["perigo"])
     async def fechar(self, interaction, button):
@@ -2428,46 +2470,22 @@ class FecharTicketView(discord.ui.View):
         if lock is None:
             return
         async with lock:
+            await self._processar_fechamento(interaction, "🔒 Fechando ticket...")
 
-            middle_id = ticket_middleman.get(self.canal.id)
-            is_admin = interaction.user.guild_permissions.administrator
+class FinalizarTicketView(FecharTicketView):
+    def __init__(self, canal):
+        super().__init__(canal)
+        self.clear_items()
 
-            if interaction.user.id != middle_id and not is_admin:
-                await interaction.response.send_message(
-                    "Apenas o Middle que assumiu o ticket ou um administrador pode fechar.",
-                    ephemeral=True, delete_after=60
-                )
-                return
-
-            await interaction.response.send_message(
-                "🔒 Fechando ticket...",
-                ephemeral=True, delete_after=60
-            )
-
-            canal_id = self.canal.id
-            guild = self.canal.guild
-            if deve_enviar_log_fechamento(canal_id):
-                try:
-                    await enviar_log_fechamento_ticket(guild, self.canal)
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar fechamento de ticket canal_id=%s guild_id=%s",
-                        canal_id,
-                        guild.id if guild else "desconhecida"
-                    )
-            else:
-                logger.info(
-                    "Log de fechamento ignorado (ticket nao finalizado) canal_id=%s guild_id=%s tipo=%s",
-                    canal_id,
-                    guild.id if guild else "desconhecida",
-                    ticket_type.get(canal_id, "desconhecido")
-                )
-
-            # limpa dados do ticket
-            remover_estado_ticket(canal_id)
-
-            # deleta canal
-            await self.canal.delete()
+    @discord.ui.button(label="✅ Finalizar Ticket", style=ESTILO_BOTAO["sucesso"])
+    async def finalizar(self, interaction, button):
+        if await em_cooldown(interaction, "finalizar_ticket", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
+        if lock is None:
+            return
+        async with lock:
+            await self._processar_fechamento(interaction, "✅ Finalizando ticket...")
 
 # ---------- NEGOCIAÇÃO INICIAL (PIX/BRAINROT) ----------
 def iniciar_negociacao_ticket(canal_id, comprador, vendedor):
@@ -2477,8 +2495,7 @@ def iniciar_negociacao_ticket(canal_id, comprador, vendedor):
         "valor": None,
         "brainrot_nome": None,
         "confirm_msg_id": None,
-        "etapa": "coleta_dados",
-        "log_liberado": False
+        "etapa": "coleta_dados"
     }
 
 
@@ -2489,18 +2506,9 @@ def _estado_negociacao(canal_id):
     return estado
 
 
-def liberar_log_fechamento(canal_id):
-    estado = _estado_negociacao(canal_id)
-    if estado is None:
-        return
-    estado["log_liberado"] = True
-
-
 def deve_enviar_log_fechamento(canal_id):
     tipo = ticket_type.get(canal_id)
     estado = _estado_negociacao(canal_id) or {}
-    if estado.get("log_liberado"):
-        return True
 
     if tipo in {"pix", "brainrot"}:
         return estado.get("etapa") == "finalizado"
@@ -3024,7 +3032,7 @@ class TradeFinalConfirmView(discord.ui.View):
                 ),
                 color=cor_paleta("sucesso")
             )
-            await self.canal.send(embed=embed_finalizado)
+            await self.canal.send(embed=embed_finalizado, view=FinalizarTicketView(self.canal))
             if estado:
                 estado["trade_etapa"] = "finalizado_trade"
 
@@ -3098,7 +3106,6 @@ class ConfirmarPagamentoTradePixView(discord.ui.View):
                 return
             if estado:
                 estado["trade_etapa"] = "processando_pagamento_pix_trade"
-                estado["log_liberado"] = True
             await interaction.response.defer()
             try:
                 await interaction.message.delete()
@@ -3312,7 +3319,6 @@ class ConfirmarTaxaTradeBrainrotView(discord.ui.View):
                 return
             if estado:
                 estado["trade_etapa"] = "processando_taxa_brainrot_trade"
-                estado["log_liberado"] = True
 
             await interaction.response.defer()
             try:
@@ -4474,6 +4480,49 @@ async def infocanal(interaction: discord.Interaction):
     embed.add_field(name="Categoria Middle (/setcmiddle)", value=_fmt_canal_configurado(guild, categoria_middle_id), inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="fn", description="Finaliza o ticket atual e gera os logs")
+async def fn(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message(
+            "Este comando só pode ser usado dentro de um ticket no servidor.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    canal = interaction.channel
+    if canal.id not in ticket_type:
+        await interaction.response.send_message(
+            "Este comando só pode ser usado em um ticket ativo.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    middle_id = ticket_middleman.get(canal.id)
+    if middle_id is None:
+        await interaction.response.send_message(
+            "Este ticket ainda não foi assumido por um Middle.",
+            ephemeral=True, delete_after=60
+        )
+        return
+    if interaction.user.id != middle_id:
+        await interaction.response.send_message(
+            "Apenas o Middle que assumiu este ticket pode usar /fn.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    lock = await ticket_lock_or_wait_msg(interaction, canal.id)
+    if lock is None:
+        return
+    async with lock:
+        await FecharTicketView(canal)._processar_fechamento(
+            interaction,
+            "✅ Finalizando ticket e registrando logs...",
+            forcar_log=True,
+            permitir_admin=False,
+        )
 
 
 @bot.tree.command(name="settaxa", description="Configura os valores da taxa do middle")
