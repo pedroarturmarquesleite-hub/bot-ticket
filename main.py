@@ -540,22 +540,25 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     horario_txt = horario_brasilia.strftime("%d/%m/%Y %H:%M (BRT)")
 
     embed = discord.Embed(
-        title=f"??? — {tipo_base} {canal.name} (Automático)",
-        description="Uma movimentação de ticket foi finalizada, informações abaixo:",
+        title=f"✅ Intermediação {canal.name}",
+        description=(
+            "• Nova intermediação concluída com sucesso.\n"
+            f"• Tipo: `{tipo_base}`"
+        ),
         color=cor
     )
-    embed.add_field(name="?? Valor total", value=valor_resumo, inline=False)
-    embed.add_field(name="?? Participantes", value=participantes_resumo_txt, inline=False)
-    embed.add_field(name="??? Horário", value=horario_txt, inline=False)
+    embed.set_thumbnail(url="https://media.discordapp.net/attachments/1473531494432641034/1484349942901379124/image.png?ex=69bde81c&is=69bc969c&hm=45aecc9cefb2d3080c502b6d3d19d19d7f7bd5aa07c6077689bb2bb9ef78376b&=&format=webp&quality=lossless&width=975&height=975")
+    embed.add_field(name="• Valor", value=valor_resumo, inline=False)
+    embed.add_field(name="• Participantes", value=participantes_resumo_txt, inline=False)
     embed.add_field(
-        name="?? Detalhes",
+        name="• Middle Man",
         value=(
-            f"Tipo: `{tipo}`\n"
-            f"Middle: {_formatar_mencao_usuario(middle_id)}"
+            f"{_formatar_mencao_usuario(middle_id)}\n"
+            f"🗓️ {horario_txt}"
         ),
         inline=False
     )
-    embed.set_footer(text=f"Ticket ID: {canal.id}")
+    embed.set_footer(text=f"Ticket ID: {canal.id} • Automático")
     try:
         await canal_logs.send(embed=embed)
     except discord.Forbidden:
@@ -797,7 +800,7 @@ def criar_embed_painel(guild_id=None):
     taxa_700_pct = float(cfg["acima_700_percentual"]) * 100
 
     embed = discord.Embed(
-        title="?? Sistema de Tickets ??",
+        title="🎫 Sistema de Tickets 🎫",
         description=(
             "> Use esse sistema para solicitar seu **MIDDLE MAN**.\n\n"
             "**Taxas do Middleman — Vendas de Brainrots**\n\n"
@@ -893,7 +896,7 @@ class botd(discord.Client):
         if not aceite_canal_id:
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -915,7 +918,7 @@ class botd(discord.Client):
         if not isinstance(aceite_channel, discord.TextChannel):
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -936,7 +939,7 @@ class botd(discord.Client):
         except discord.Forbidden:
             await enviar_fluxo(
                 canal,
-                "?? Sem permissão para enviar no canal de aceite configurado. "
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
                 "Verifique se o bot tem permissão de envio de mensagens.",
                 cor=cor_paleta("erro")
             )
@@ -946,7 +949,7 @@ class botd(discord.Client):
         if not aceite_canal_id:
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -968,7 +971,7 @@ class botd(discord.Client):
         if not isinstance(aceite_channel, discord.TextChannel):
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -987,7 +990,7 @@ class botd(discord.Client):
         except discord.Forbidden:
             await enviar_fluxo(
                 canal,
-                "?? Sem permissão para enviar no canal de aceite configurado. "
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
                 "Verifique se o bot tem permissão de envio de mensagens.",
                 cor=cor_paleta("erro")
             )
@@ -998,7 +1001,7 @@ class botd(discord.Client):
 
         await enviar_fluxo(
             canal,
-            "?? Bot reiniciado. Fluxo deste ticket foi recarregado.",
+            "🔄 Bot reiniciado. Fluxo deste ticket foi recarregado.",
             view=FecharTicketView(canal),
             cor=cor_paleta("primario")
         )
@@ -1011,7 +1014,7 @@ class botd(discord.Client):
                     view_setup = TradeSetupView(canal, criador)
                     msg = await enviar_fluxo(
                         canal,
-                        "?? Bot reiniciado. Se necessário, refaça a definição de comprador e vendedor:",
+                        "🔄 Bot reiniciado. Se necessário, refaça a definição de comprador e vendedor:",
                         view=view_setup,
                         cor=cor_paleta("primario")
                     )
@@ -1060,7 +1063,7 @@ class botd(discord.Client):
                     view_trade = TradeSetupTradeView(canal, criador)
                     msg = await enviar_fluxo(
                         canal,
-                        "?? Bot reiniciado. Se necessário, refaça a seleção da pessoa da troca:",
+                        "🔄 Bot reiniciado. Se necessário, refaça a seleção da pessoa da troca:",
                         view=view_trade,
                         cor=cor_paleta("primario")
                     )
@@ -1072,8 +1075,8 @@ class botd(discord.Client):
 
             if middle_id is None:
                 embed = discord.Embed(
-                    title="? Aguardando Middle Man",
-                    description="?? Bot reiniciado. Um middle irá aceitar o ticket em breve...",
+                    title="⏳ Aguardando Middle Man",
+                    description="🔄 Bot reiniciado. Um middle irá aceitar o ticket em breve...",
                     color=cor_paleta("aviso")
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -1086,8 +1089,8 @@ class botd(discord.Client):
                 ticket_middleman.pop(canal.id, None)
                 salvar_estado_tickets()
                 embed = discord.Embed(
-                    title="? Aguardando Middle Man",
-                    description="?? O middle anterior não está disponível. Aguardando novo aceite...",
+                    title="⏳ Aguardando Middle Man",
+                    description="🔄 O middle anterior não está disponível. Aguardando novo aceite...",
                     color=cor_paleta("aviso")
                 )
                 msg_loading = await canal.send(embed=embed)
@@ -1102,7 +1105,7 @@ class botd(discord.Client):
                 estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
             await enviar_fluxo(
                 canal,
-                "?? Bot reiniciado. Continue escolhendo a taxa da trade:",
+                "🔄 Bot reiniciado. Continue escolhendo a taxa da trade:",
                 view=TradeTaxaEscolhaView(canal, pessoa1, pessoa2, middle.id),
                 cor=cor_paleta("aviso")
             )
@@ -1160,16 +1163,16 @@ class botd(discord.Client):
 async def enviar_qr_fluxo_pix(canal, modo, dados):
     middle_id = _id_int(dados.get("middle_id"))
     if middle_id is None:
-        return False, "? Nenhum Middle vinculado a este ticket."
+        return False, "⚠️ Nenhum Middle vinculado a este ticket."
 
     pix_info = get_pix_data(middle_id)
     pix_key = pix_info.get("chave")
     pix_nome = pix_info.get("nome") or "Não informado"
 
     if not pix_key:
-        return False, "? Middle não cadastrou chave PIX."
+        return False, "❌ Middle não cadastrou chave PIX."
     if not validar_chave_pix(pix_key):
-        return False, "? Middle cadastrou uma chave PIX inválida."
+        return False, "❌ Middle cadastrou uma chave PIX inválida."
 
     if modo == "taxa_comprador":
         valor = float(dados["valor"])
@@ -1182,7 +1185,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{total:.2f}")
         file = discord.File(fp=qr, filename="pix_total.png")
         embed_qr = discord.Embed(
-            title="?? Pagamento total (item + taxa)",
+            title="💰 Pagamento total (item + taxa)",
             description=(
                 f"Titular: {pix_nome}\n"
                 f"Código Pix: `{pix_copia_cola}`\n"
@@ -1196,7 +1199,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         await canal.send(embed=embed_qr, file=file)
         await enviar_fluxo(
             canal,
-            "? Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola),
             cor=cor_paleta("aviso")
         )
@@ -1212,7 +1215,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         pix_copia_cola_item = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
         file_item = discord.File(fp=qr_item, filename="pix_item.png")
         embed_item = discord.Embed(
-            title="?? QR do comprador (valor do item)",
+            title="🛒 QR do comprador (valor do item)",
             description=(
                 f"Titular: {pix_nome}\n"
                 f"Código Pix: `{pix_copia_cola_item}`\n"
@@ -1228,7 +1231,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         pix_copia_cola_taxa = gerar_payload_pix(pix_key, valor=f"{taxa:.2f}")
         file_taxa = discord.File(fp=qr_taxa, filename="pix_taxa.png")
         embed_taxa = discord.Embed(
-            title="?? QR do vendedor (taxa do middle)",
+            title="💸 QR do vendedor (taxa do middle)",
             description=(
                 f"Titular: {pix_nome}\n"
                 f"Código Pix: `{pix_copia_cola_taxa}`\n"
@@ -1241,7 +1244,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         await canal.send(view=PixCopiaColaView(pix_copia_cola_taxa))
         await enviar_fluxo(
             canal,
-            "? Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola_item),
             cor=cor_paleta("aviso")
         )
@@ -1256,7 +1259,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
         file = discord.File(fp=qr, filename="pix_item_brainrot.png")
         embed_qr = discord.Embed(
-            title="?? Pagamento do item (após taxa em Brainrot)",
+            title="💰 Pagamento do item (após taxa em Brainrot)",
             description=(
                 f"Titular: {pix_nome}\n"
                 f"Código Pix: `{pix_copia_cola}`\n"
@@ -1269,7 +1272,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
-            "? Aguardando pagamento do comprador...",
+            "⏳ Aguardando pagamento do comprador...",
             view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor),
             cor=cor_paleta("aviso")
         )
@@ -1303,7 +1306,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         return True, None
 
-    return False, "? Fluxo de reenvio de QR não reconhecido."
+    return False, "❌ Fluxo de reenvio de QR não reconhecido."
 
 
 class ReenviarQrPixView(discord.ui.View):
@@ -1373,7 +1376,7 @@ class ReenviarQrPixView(discord.ui.View):
         if self.modo == "trade_pix" and estado:
             estado["trade_etapa"] = "aguardando_pagamento_pix_trade"
 
-        await interaction.followup.send("? QR reenviado com sucesso.", ephemeral=True)
+        await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
 
 
 class PixCopiaColaView(discord.ui.View):
@@ -1381,7 +1384,7 @@ class PixCopiaColaView(discord.ui.View):
         super().__init__(timeout=None)
         self.payload = payload
 
-    @discord.ui.button(label="?? Copiar código Pix", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"])
     async def copiar_codigo(self, interaction, button):
         await interaction.response.send_message(
             f"`{self.payload}`",
@@ -1438,10 +1441,10 @@ class TaxaView(discord.ui.View):
         total = self.valor + self.taxa
 
         msg = (
-            f"?? Valor do item: R$ {self.valor:.2f}\n"
-            f"?? Taxa MM: R$ {self.taxa:.2f}\n\n"
-            f"?? Comprador enviará: R$ {total:.2f}\n"
-            f"??? Vendedor receberá: R$ {self.valor:.2f}"
+            f"💰 Valor do item: R$ {self.valor:.2f}\n"
+            f"💸 Taxa MM: R$ {self.taxa:.2f}\n\n"
+            f"🛒 Comprador enviará: R$ {total:.2f}\n"
+            f"🏷️ Vendedor receberá: R$ {self.valor:.2f}"
         )
 
         await self.mostrar(interaction, msg)
@@ -1505,11 +1508,11 @@ class TaxaView(discord.ui.View):
             estado["etapa"] = "escolha_taxa_processando"
 
         msg = (
-            f"?? Valor do item: R$ {self.valor:.2f}\n"
-            f"?? Taxa MM: R$ {self.taxa:.2f}\n\n"
-            f"?? Comprador enviará: R$ {self.valor:.2f}\n"
-            f"??? Vendedor pagará taxa: R$ {self.taxa:.2f}\n"
-            f"??? Vendedor receberá: R$ {self.valor:.2f}"
+            f"💰 Valor do item: R$ {self.valor:.2f}\n"
+            f"💸 Taxa MM: R$ {self.taxa:.2f}\n\n"
+            f"🛒 Comprador enviará: R$ {self.valor:.2f}\n"
+            f"🏷️ Vendedor pagará taxa: R$ {self.taxa:.2f}\n"
+            f"🏷️ Vendedor receberá: R$ {self.valor:.2f}"
         )
 
         await self.mostrar(interaction, msg)
@@ -1558,7 +1561,7 @@ class ConfirmarPagamentoView(discord.ui.View):
         if not self.pix_copia_cola:
             self.remove_item(self.copiar_codigo)
 
-    @discord.ui.button(label="?? Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
+    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
     async def copiar_codigo(self, interaction, button):
         await interaction.response.send_message(
             f"`{self.pix_copia_cola}`",
@@ -1601,7 +1604,7 @@ class ConfirmarPagamentoView(discord.ui.View):
             estado["etapa"] = "aguardando_confirmacao_entrega"
         await enviar_fluxo(
             self.canal,
-            f"?? {self.comprador.mention}, confirme que recebeu o Brainrot:",
+            f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
             view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
             cor=cor_paleta("destaque")
         )
@@ -1721,7 +1724,7 @@ class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
                 estado["etapa"] = "aguardando_confirmacao_entrega"
             await enviar_fluxo(
                 self.canal,
-                f"?? {self.comprador.mention}, confirme que recebeu o Brainrot:",
+                f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
                 view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
                 cor=cor_paleta("destaque")
             )
@@ -1745,7 +1748,7 @@ class ConfirmarEntregaView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="?? Recebi o Brainrot", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📦 Recebi o Brainrot", style=ESTILO_BOTAO["sucesso"])
     async def confirmar_item(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_item", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1800,7 +1803,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
 
         await enviar_fluxo(
             self.canal,
-            f"?? Pix do vendedor:\n*Apenas confirme o pagamento quando o Middle Man enviar o seu pix*\n`{chave}`",
+            f"💳 Pix do vendedor:\n*Apenas confirme o pagamento quando o Middle Man enviar o seu pix*\n`{chave}`",
             view=ConfirmarRecebimentoView(self.canal, self.vendedor),
             cor=cor_paleta("info")
         )
@@ -1815,7 +1818,7 @@ class EnviarPixView(discord.ui.View):
         self.canal = canal
         self.vendedor = vendedor
 
-    @discord.ui.button(label="?? Enviar meu Pix", style=ESTILO_BOTAO["primario"])
+    @discord.ui.button(label="💳 Enviar meu Pix", style=ESTILO_BOTAO["primario"])
     async def enviar_pix(self, interaction, button):
 
         if interaction.user != self.vendedor:
@@ -1843,7 +1846,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
         self.canal = canal
         self.vendedor = vendedor
 
-    @discord.ui.button(label="?? Recebi o pagamento", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="💰 Recebi o pagamento", style=ESTILO_BOTAO["sucesso"])
     async def confirmar_recebimento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_vendedor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1872,7 +1875,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
         embed_finalizado = discord.Embed(
             title="Trade Finalizada",
             description=(
-                "? Intermediação finalizada com sucesso!\n\n"
+                "✅ Intermediação finalizada com sucesso!\n\n"
                 "Obrigado por utilizar nosso sistema de middle man."
             ),
             color=cor_paleta("sucesso")
@@ -1887,7 +1890,7 @@ class FecharTicketView(discord.ui.View):
         super().__init__(timeout=None)
         self.canal = canal
 
-    @discord.ui.button(label="?? Fechar Ticket", style=ESTILO_BOTAO["perigo"])
+    @discord.ui.button(label="🔒 Fechar Ticket", style=ESTILO_BOTAO["perigo"])
     async def fechar(self, interaction, button):
         if await em_cooldown(interaction, "fechar_ticket", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -1903,7 +1906,7 @@ class FecharTicketView(discord.ui.View):
             return
 
         await interaction.response.send_message(
-            "?? Fechando ticket...",
+            "🔒 Fechando ticket...",
             ephemeral=True, delete_after=60
         )
 
@@ -2089,7 +2092,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
                 estado["etapa"] = "aguardando_escolha_taxa"
             await enviar_fluxo(
                 self.canal,
-                f"?? {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
+                f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
                 view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id),
                 cor=cor_paleta("aviso")
             )
@@ -2173,7 +2176,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
 
         await enviar_fluxo(
             self.canal,
-            f"? Valor registrado: R$ {valor:.2f}\n"
+            f"✅ Valor registrado: R$ {valor:.2f}\n"
             f"Aguardando o vendedor informar o brainrot.",
             cor=cor_paleta("sucesso")
         )
@@ -2242,7 +2245,7 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
 
         await enviar_fluxo(
             self.canal,
-            f"? Brainrot registrado: `{nome}`\n"
+            f"✅ Brainrot registrado: `{nome}`\n"
             f"Aguardando o comprador informar o valor.",
             cor=cor_paleta("sucesso")
         )
@@ -2411,7 +2414,7 @@ class MiddlemanAcceptView(discord.ui.View):
         await self.canal.send(embed=embed_middle)
 
         await interaction.followup.send(
-            "? Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
+            "✅ Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
             ephemeral=True,
             view=IrParaTicketView(self.canal)
         )
@@ -2480,7 +2483,7 @@ class TradeFinalConfirmView(discord.ui.View):
             embed_finalizado = discord.Embed(
                 title="Trade Finalizada",
                 description=(
-                    "? Trade finalizada com sucesso!\n\n"
+                    "✅ Trade finalizada com sucesso!\n\n"
                     "Obrigado por utilizar nosso sistema de middle man."
                 ),
                 color=cor_paleta("sucesso")
@@ -2822,7 +2825,7 @@ class MiddlemanAcceptTradeView(discord.ui.View):
             )
             try:
                 await interaction.followup.send(
-                    "? Ticket assumido com sucesso. Aguarde a escolha das partes para seguir com o fluxo.",
+                    "✅ Ticket assumido com sucesso. Aguarde a escolha das partes para seguir com o fluxo.",
                     ephemeral=True,
                     view=IrParaTicketView(self.canal)
                 )
@@ -2855,7 +2858,7 @@ class MiddlemanAcceptTradeView(discord.ui.View):
         embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
         await self.canal.send(embed=embed_middle)
         await interaction.followup.send(
-            "? Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
+            "✅ Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
             ephemeral=True,
             view=IrParaTicketView(self.canal)
         )
@@ -3014,7 +3017,7 @@ class TradeSetupView(discord.ui.View):
                 estado["etapa"] = "aguardando_middle_pix"
             await enviar_fluxo(
                 self.canal,
-                "?? O Middle responsável não foi encontrado, aguardando novo aceite.",
+                "⚠️ O Middle responsável não foi encontrado, aguardando novo aceite.",
                 cor=cor_paleta("erro")
             )
             return
@@ -3182,7 +3185,7 @@ class TicketView(discord.ui.View):
         if not aceite_canal_id:
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -3204,7 +3207,7 @@ class TicketView(discord.ui.View):
         if not isinstance(aceite_channel, discord.TextChannel):
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -3225,7 +3228,7 @@ class TicketView(discord.ui.View):
         except discord.Forbidden:
             await enviar_fluxo(
                 canal,
-                "?? Sem permissão para enviar no canal de aceite configurado. "
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
                 "Verifique se o bot tem permissão de envio de mensagens.",
                 cor=cor_paleta("erro")
             )
@@ -3235,7 +3238,7 @@ class TicketView(discord.ui.View):
         if not aceite_canal_id:
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -3257,7 +3260,7 @@ class TicketView(discord.ui.View):
         if not isinstance(aceite_channel, discord.TextChannel):
             await enviar_fluxo(
                 canal,
-                "?? Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
+                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
                 cor=cor_paleta("erro")
             )
             return
@@ -3276,7 +3279,7 @@ class TicketView(discord.ui.View):
         except discord.Forbidden:
             await enviar_fluxo(
                 canal,
-                "?? Sem permissão para enviar no canal de aceite configurado. "
+                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
                 "Verifique se o bot tem permissão de envio de mensagens.",
                 cor=cor_paleta("erro")
             )
@@ -3284,7 +3287,7 @@ class TicketView(discord.ui.View):
     def proximo_numero_ticket_pix(self, guild):
         guild_id = guild.id
 
-        pattern = re.compile(r"^??-ticket-(\d+)$")
+        pattern = re.compile(r"^🔃-ticket-(\d+)$")
         maior_existente = 0
 
         for canal in guild.text_channels:
@@ -3331,8 +3334,8 @@ class TicketView(discord.ui.View):
 
     async def _avisar_middles_no_canal(self, canal, comprador=None, vendedor=None, ticket_kind="pix"):
         embed = discord.Embed(
-            title="? Aguardando Middle Man",
-            description="?? Um Middle irá aceitar o ticket em breve...",
+            title="⏳ Aguardando Middle Man",
+            description="🔄 Um Middle irá aceitar o ticket em breve...",
             color=cor_paleta("aviso")
         )
         msg_loading = await canal.send(embed=embed)
@@ -3355,7 +3358,7 @@ class TicketView(discord.ui.View):
             estado["etapa"] = "coleta_dados"
             estado["confirm_msg_id"] = None
 
-        prefixo = "?? Bot reiniciado. " if reiniciado else ""
+        prefixo = "🔄 Bot reiniciado. " if reiniciado else ""
         view_dados = NegociacaoDadosView(canal, comprador, vendedor)
         msg_dados = await enviar_fluxo(
             canal,
@@ -3380,13 +3383,13 @@ class TicketView(discord.ui.View):
         }
 
         canal = await interaction.guild.create_text_channel(
-            name=f"??-ticket-{numero_ticket}",
+            name=f"🔃-ticket-{numero_ticket}",
             overwrites=overwrites,
             category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "pix")
         aviso = discord.Embed(
-            title="?? LEIA COM ATENÇÃO",
+            title="📢 LEIA COM ATENÇÃO",
             description=(
                 "A taxa de middleman não é reembolsável.\n\n"
                 "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
@@ -3398,7 +3401,7 @@ class TicketView(discord.ui.View):
         )
         await enviar_fluxo(
             canal,
-            f"?? {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*",
             cor=cor_paleta("sucesso")
         )
@@ -3432,7 +3435,7 @@ class TicketView(discord.ui.View):
 
         embed = discord.Embed(
             description=(
-                f"? | {interaction.user.mention}, seu ticket foi aberto!\n"
+                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
                 "Clique abaixo para encontrá-lo."
             ),
             color=cor_paleta("sucesso")
@@ -3456,7 +3459,7 @@ class TicketView(discord.ui.View):
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "??-ticket-middle-brainrot")
+        nome_canal = self.proximo_nome_ticket(interaction.guild, "💠-ticket-middle-brainrot")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True)
@@ -3470,7 +3473,7 @@ class TicketView(discord.ui.View):
         salvar_tipo_ticket(canal.id, "brainrot")
 
         aviso = discord.Embed(
-            title="?? LEIA COM ATENÇÃO",
+            title="📢 LEIA COM ATENÇÃO",
             description=(
                 "A taxa de middleman não é reembolsável.\n\n"
                 "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
@@ -3483,7 +3486,7 @@ class TicketView(discord.ui.View):
 
         await enviar_fluxo(
             canal,
-            f"?? {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*",
             cor=cor_paleta("sucesso")
         )
@@ -3517,7 +3520,7 @@ class TicketView(discord.ui.View):
 
         embed = discord.Embed(
             description=(
-                f"? | {interaction.user.mention}, seu ticket foi aberto!\n"
+                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
                 "Clique abaixo para encontrá-lo."
             ),
             color=cor_paleta("sucesso")
@@ -3541,7 +3544,7 @@ class TicketView(discord.ui.View):
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "??-ticket-middle-trade")
+        nome_canal = self.proximo_nome_ticket(interaction.guild, "💱-ticket-middle-trade")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True)
@@ -3555,7 +3558,7 @@ class TicketView(discord.ui.View):
         salvar_tipo_ticket(canal.id, "trade")
 
         aviso = discord.Embed(
-            title="?? LEIA COM ATENÇÃO",
+            title="📢 LEIA COM ATENÇÃO",
             description=(
                 "A taxa de middleman não é reembolsável.\n\n"
                 "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
@@ -3568,7 +3571,7 @@ class TicketView(discord.ui.View):
 
         await enviar_fluxo(
             canal,
-            f"?? {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
+            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
             "*Responda as perguntas para continuar o atendimento.*",
             cor=cor_paleta("sucesso")
         )
@@ -3602,7 +3605,7 @@ class TicketView(discord.ui.View):
 
         embed = discord.Embed(
             description=(
-                f"? | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
+                f"✅ | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
                 "Clique abaixo para encontrá-lo."
             ),
             color=cor_paleta("sucesso")
@@ -3645,7 +3648,7 @@ class TicketView(discord.ui.View):
                 return
             await self.ticket_view.criar_ticket_middleman_trade(interaction)
 
-    @discord.ui.button(label="??Solicitar Middle Man", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="💠Solicitar Middle Man", style=ESTILO_BOTAO["sucesso"])
     async def abrir(self, interaction, button):
         if await em_cooldown(interaction, "abrir_menu_ticket_middle", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -3670,7 +3673,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 
     if not validar_chave_pix(chave):
         await interaction.response.send_message(
-            "? Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória válida.",
+            "❌ Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória válida.",
             ephemeral=True, delete_after=60
         )
         return
@@ -3678,7 +3681,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
     set_pix(interaction.user.id, chave, nome)
 
     await interaction.response.send_message(
-        f"? Chave Pix e nome atualizados {interaction.user.mention}",
+        f"✅ Chave Pix e nome atualizados {interaction.user.mention}",
         ephemeral=True, delete_after=60
     )
 
@@ -3717,7 +3720,7 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
         return
 
     await interaction.response.send_message(
-        f"? Painel configurado com sucesso em {canal.mention}.",
+        f"✅ Painel configurado com sucesso em {canal.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -3768,7 +3771,7 @@ async def setimgp(interaction: discord.Interaction, url: str):
             return
 
     await interaction.response.send_message(
-        "? Imagem do painel atualizada para este servidor.",
+        "✅ Imagem do painel atualizada para este servidor.",
         ephemeral=True, delete_after=60
     )
 
@@ -3784,7 +3787,7 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
     set_aceite_canal(interaction.guild.id, canal.id)
 
     await interaction.response.send_message(
-        f"? Canal de aceite configurado com sucesso em {canal.mention}.",
+        f"✅ Canal de aceite configurado com sucesso em {canal.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -3800,7 +3803,7 @@ async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
 
     set_middle_role_id(interaction.guild.id, cargo.id)
     await interaction.response.send_message(
-        f"? Cargo de Middle configurado para {cargo.mention}.",
+        f"✅ Cargo de Middle configurado para {cargo.mention}.",
         ephemeral=True, delete_after=60
     )
 
@@ -3816,7 +3819,7 @@ async def setcmiddle(interaction: discord.Interaction, categoria: discord.Catego
 
     set_middle_category_id(interaction.guild.id, categoria.id)
     await interaction.response.send_message(
-        f"? Categoria de tickets configurada para **{categoria.name}**.",
+        f"✅ Categoria de tickets configurada para **{categoria.name}**.",
         ephemeral=True, delete_after=60
     )
 
@@ -3914,7 +3917,7 @@ async def settaxa(
     salvar_taxa_config_guild(interaction.guild.id, data)
 
     await interaction.response.send_message(
-        f"? Taxa atualizada: **{faixa.name}** = `{valor}`",
+        f"✅ Taxa atualizada: **{faixa.name}** = `{valor}`",
         ephemeral=True, delete_after=60
     )
 
@@ -3981,6 +3984,7 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
+
 
 
 
