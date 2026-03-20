@@ -2475,7 +2475,8 @@ class FecharTicketView(discord.ui.View):
 class FinalizarTicketView(FecharTicketView):
     def __init__(self, canal):
         super().__init__(canal)
-        self.clear_items()
+        # Remove apenas o botão herdado de "Fechar Ticket" e mantém o botão de finalizar.
+        self.remove_item(self.fechar)
 
     @discord.ui.button(label="✅ Finalizar Ticket", style=ESTILO_BOTAO["sucesso"])
     async def finalizar(self, interaction, button):
@@ -2908,6 +2909,19 @@ class MiddlemanAcceptView(discord.ui.View):
         if lock is None:
             return
         async with lock:
+            canal_existe = interaction.guild.get_channel(self.canal.id)
+            if canal_existe is None:
+                try:
+                    await interaction.message.delete()
+                except Exception:
+                    pass
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "Este ticket não existe mais. Mensagem de aceite removida.",
+                        ephemeral=True, delete_after=60
+                    )
+                return
+
             role = get_middle_role(interaction.guild)
 
             if role not in interaction.user.roles:
@@ -3351,6 +3365,19 @@ class MiddlemanAcceptTradeView(discord.ui.View):
         if lock is None:
             return
         async with lock:
+            canal_existe = interaction.guild.get_channel(self.canal.id)
+            if canal_existe is None:
+                try:
+                    await interaction.message.delete()
+                except Exception:
+                    pass
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "Este ticket não existe mais. Mensagem de aceite removida.",
+                        ephemeral=True, delete_after=60
+                    )
+                return
+
             role = get_middle_role(interaction.guild)
             if role not in interaction.user.roles:
                 await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
