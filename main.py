@@ -14,6 +14,7 @@ import shutil
 import logging
 from logging.handlers import RotatingFileHandler
 import time
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
@@ -1056,8 +1057,10 @@ def ranking_mm_taxa_24h(guild_id):
     if not isinstance(eventos, list):
         return []
 
-    agora = int(discord.utils.utcnow().timestamp())
-    limite = agora - (24 * 60 * 60)
+    agora_utc = discord.utils.utcnow()
+    agora_brt = agora_utc.astimezone(ZoneInfo("America/Sao_Paulo"))
+    data_brt_atual = agora_brt.date()
+    agora = int(agora_utc.timestamp())
     ranking = {}
     eventos_validos = []
 
@@ -1072,7 +1075,8 @@ def ranking_mm_taxa_24h(guild_id):
             continue
         if ts is None or middle_id is None or valor <= 0:
             continue
-        if ts >= limite:
+        dt_evento_brt = datetime.fromtimestamp(ts, tz=ZoneInfo("America/Sao_Paulo"))
+        if dt_evento_brt.date() == data_brt_atual:
             ranking[middle_id] = ranking.get(middle_id, 0.0) + valor
         if ts >= (agora - (30 * 24 * 60 * 60)):
             eventos_validos.append(
@@ -2397,6 +2401,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
         self.valor = valor
         self.valor_confirmado = False
         self.brainrot_confirmado = False
+        self.mensagens_confirmacao_ids = []
         self.confirmar_valor.label = f"{self._nome_curto(self.vendedor)} confirma valor"
         self.confirmar_brainrot.label = f"{self._nome_curto(self.comprador)} confirma brainrot"
 
@@ -2414,6 +2419,18 @@ class ConfirmarNegociacaoView(discord.ui.View):
             return
         if estado:
             estado["etapa"] = "avanco_confirmacao_processando"
+        for msg_id in list(self.mensagens_confirmacao_ids):
+            try:
+                msg = await self.canal.fetch_message(msg_id)
+                await msg.delete()
+            except discord.NotFound:
+                pass
+            except Exception:
+                logger.exception(
+                    "Falha ao apagar embed de confirmacao canal_id=%s msg_id=%s",
+                    self.canal.id,
+                    msg_id
+                )
         try:
             await interaction.message.edit(view=None)
         except Exception:
@@ -2457,7 +2474,18 @@ class ConfirmarNegociacaoView(discord.ui.View):
             )
             return
         self.valor_confirmado = True
-        await interaction.response.send_message("Valor confirmado.", ephemeral=True, delete_after=60)
+        button.disabled = True
+        await interaction.response.defer()
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        embed = discord.Embed(
+            description=f"{interaction.user.mention} confirmou a negociação.",
+            color=cor_paleta("sucesso")
+        )
+        msg = await self.canal.send(embed=embed)
+        self.mensagens_confirmacao_ids.append(msg.id)
         await self._seguir_fluxo(interaction)
 
     @discord.ui.button(label="Vendedor confirma brainrot", style=ESTILO_BOTAO["primario"])
@@ -2471,7 +2499,18 @@ class ConfirmarNegociacaoView(discord.ui.View):
             )
             return
         self.brainrot_confirmado = True
-        await interaction.response.send_message("Brainrot confirmado.", ephemeral=True, delete_after=60)
+        button.disabled = True
+        await interaction.response.defer()
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        embed = discord.Embed(
+            description=f"{interaction.user.mention} confirmou a negociação.",
+            color=cor_paleta("sucesso")
+        )
+        msg = await self.canal.send(embed=embed)
+        self.mensagens_confirmacao_ids.append(msg.id)
         await self._seguir_fluxo(interaction)
 
 
@@ -4373,7 +4412,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     await interaction.followup.send(view=PixCopiaColaView(pix_copia_cola))
 
 
-@bot.tree.command(name="mmt", description="Mostra o ranking de taxa dos Middle Man nas últimas 24h")
+@bot.tree.command(name="mmt", description="Mostra o ranking diário de taxa dos Middle Man (hoje, BRT)")
 async def mmt(interaction: discord.Interaction):
     role = get_middle_role(interaction.guild)
     is_middle = role in interaction.user.roles if role else False
@@ -4389,7 +4428,7 @@ async def mmt(interaction: discord.Interaction):
     ranking = ranking_mm_taxa_24h(interaction.guild.id)
     if not ranking:
         await interaction.response.send_message(
-            "Nenhuma taxa registrada nas últimas 24 horas.",
+            "Nenhuma taxa registrada hoje (horário de Brasília).",
             ephemeral=True, delete_after=60
         )
         return
@@ -4399,7 +4438,7 @@ async def mmt(interaction: discord.Interaction):
         linhas.append(f"**{i}.** <@{middle_id}> — `R$ {total:.2f}`")
 
     embed = discord.Embed(
-        title="📊 Ranking MM (últimas 24h)",
+        title="📊 Ranking MM de hoje (BRT)",
         description="\n".join(linhas),
         color=cor_paleta("info")
     )
