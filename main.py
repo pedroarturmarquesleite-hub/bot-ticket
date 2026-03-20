@@ -13,6 +13,7 @@ import os
 import shutil
 import logging
 import asyncio
+import sqlite3
 from logging.handlers import RotatingFileHandler
 import time
 from datetime import datetime
@@ -40,6 +41,7 @@ MIDDLE_CATEGORY_CONFIG_FILE = os.path.join(APP_DATA_DIR, "middle_category_config
 LEVELS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "levels_config.json")
 SPENDING_CONFIG_FILE = os.path.join(APP_DATA_DIR, "spending_config.json")
 MM_TAXA_METRICS_FILE = os.path.join(APP_DATA_DIR, "mm_taxa_metrics.json")
+SETTINGS_DB_FILE = os.path.join(APP_DATA_DIR, "bot_settings.db")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
 PANEL_DEFAULT_IMAGE_URL = (
@@ -683,60 +685,284 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
             )
 
 
-migrar_dados_legados()
-carregar_estado_tickets_memoria()
+def _load_json_file(path):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def init_settings_db():
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id INTEGER PRIMARY KEY,
+                painel_channel_id INTEGER,
+                painel_image_url TEXT,
+                aceite_channel_id INTEGER,
+                logs_channel_id INTEGER,
+                middle_role_id INTEGER,
+                middle_category_id INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_taxa (
+                guild_id INTEGER NOT NULL,
+                faixa TEXT NOT NULL,
+                valor REAL NOT NULL,
+                PRIMARY KEY (guild_id, faixa)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_levels (
+                guild_id INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                min_total REAL NOT NULL,
+                PRIMARY KEY (guild_id, role_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS migration_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
+        conn.commit()
+
+
+def migrate_json_configs_to_db():
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            "SELECT value FROM migration_meta WHERE key = 'json_to_sqlite_v1'"
+        ).fetchone()
+        if row and str(row[0]) == "done":
+            return
+
+        painel = _load_json_file(PANEL_CONFIG_FILE)
+        aceite = _load_json_file(ACEITE_CONFIG_FILE)
+        logs_cfg = _load_json_file(LOGS_CONFIG_FILE)
+        role_cfg = _load_json_file(ROLE_CONFIG_FILE)
+        category_cfg = _load_json_file(MIDDLE_CATEGORY_CONFIG_FILE)
+        taxa_cfg = _load_json_file(TAXA_CONFIG_FILE)
+        levels_cfg = _load_json_file(LEVELS_CONFIG_FILE)
+
+        guild_ids = set()
+        guild_ids.update(_id_int(k) for k in painel.keys())
+        guild_ids.update(_id_int(k) for k in aceite.keys())
+        guild_ids.update(_id_int(k) for k in logs_cfg.keys())
+        guild_ids.update(_id_int(k) for k in role_cfg.keys())
+        guild_ids.update(_id_int(k) for k in category_cfg.keys())
+        guild_ids.update(_id_int(k) for k in levels_cfg.keys())
+        guild_ids.update(_id_int(k) for k in taxa_cfg.keys())
+        guild_ids.discard(None)
+
+        for guild_id in guild_ids:
+            entry = painel.get(str(guild_id))
+            if isinstance(entry, dict):
+                painel_channel_id = _id_int(entry.get("channel_id"))
+                painel_image_url = entry.get("image_url")
+            else:
+                painel_channel_id = _id_int(entry)
+                painel_image_url = None
+            conn.execute(
+                """
+                INSERT INTO guild_settings (
+                    guild_id, painel_channel_id, painel_image_url, aceite_channel_id, logs_channel_id, middle_role_id, middle_category_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    painel_channel_id=excluded.painel_channel_id,
+                    painel_image_url=excluded.painel_image_url,
+                    aceite_channel_id=excluded.aceite_channel_id,
+                    logs_channel_id=excluded.logs_channel_id,
+                    middle_role_id=excluded.middle_role_id,
+                    middle_category_id=excluded.middle_category_id
+                """,
+                (
+                    guild_id,
+                    painel_channel_id,
+                    painel_image_url,
+                    _id_int(aceite.get(str(guild_id))),
+                    _id_int(logs_cfg.get(str(guild_id))),
+                    _id_int(role_cfg.get(str(guild_id))),
+                    _id_int(category_cfg.get(str(guild_id))),
+                ),
+            )
+
+        # Migra níveis por servidor.
+        for guild_key, lista in levels_cfg.items():
+            guild_id = _id_int(guild_key)
+            if guild_id is None or not isinstance(lista, list):
+                continue
+            for item in lista:
+                if not isinstance(item, dict):
+                    continue
+                role_id = _id_int(item.get("role_id"))
+                try:
+                    min_total = float(item.get("min_total"))
+                except (TypeError, ValueError):
+                    continue
+                if role_id is None or min_total < 0:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO guild_levels (guild_id, role_id, min_total)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, role_id) DO UPDATE SET min_total=excluded.min_total
+                    """,
+                    (guild_id, role_id, min_total),
+                )
+
+        # Migra taxa por servidor (ou legado global para guild_id=0).
+        if isinstance(taxa_cfg, dict):
+            if any(k in taxa_cfg for k in TAXA_PADRAO.keys()):
+                for faixa, valor in _normalizar_taxa_config(taxa_cfg).items():
+                    conn.execute(
+                        """
+                        INSERT INTO guild_taxa (guild_id, faixa, valor)
+                        VALUES (0, ?, ?)
+                        ON CONFLICT(guild_id, faixa) DO UPDATE SET valor=excluded.valor
+                        """,
+                        (faixa, float(valor)),
+                    )
+            else:
+                for guild_key, cfg in taxa_cfg.items():
+                    guild_id = _id_int(guild_key)
+                    if guild_id is None:
+                        continue
+                    cfg_norm = _normalizar_taxa_config(cfg if isinstance(cfg, dict) else {})
+                    for faixa, valor in cfg_norm.items():
+                        conn.execute(
+                            """
+                            INSERT INTO guild_taxa (guild_id, faixa, valor)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(guild_id, faixa) DO UPDATE SET valor=excluded.valor
+                            """,
+                            (guild_id, faixa, float(valor)),
+                        )
+
+        conn.execute(
+            """
+            INSERT INTO migration_meta (key, value)
+            VALUES ('json_to_sqlite_v1', 'done')
+            ON CONFLICT(key) DO UPDATE SET value='done'
+            """
+        )
+        conn.commit()
 
 
 def carregar_painel_config():
-    if not os.path.exists(PANEL_CONFIG_FILE):
-        return {}
-    with open(PANEL_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT guild_id, painel_channel_id, painel_image_url
+            FROM guild_settings
+            WHERE painel_channel_id IS NOT NULL OR painel_image_url IS NOT NULL
+            """
+        ).fetchall()
+    data = {}
+    for row in rows:
+        data[str(row["guild_id"])] = {
+            "channel_id": _id_int(row["painel_channel_id"]),
+            "image_url": row["painel_image_url"]
+        }
+    return data
 
 
 def salvar_painel_config(data):
-    with open(PANEL_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, entry in data.items():
+            guild_id = _id_int(guild_key)
+            if guild_id is None:
+                continue
+            if isinstance(entry, dict):
+                painel_id = _id_int(entry.get("channel_id"))
+                image_url = entry.get("image_url")
+            else:
+                painel_id = _id_int(entry)
+                image_url = None
+            conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, painel_channel_id, painel_image_url)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    painel_channel_id=excluded.painel_channel_id,
+                    painel_image_url=COALESCE(excluded.painel_image_url, guild_settings.painel_image_url)
+                """,
+                (guild_id, painel_id, image_url)
+            )
+        conn.commit()
+
+
+def _set_guild_setting(guild_id, column, value):
+    if _id_int(guild_id) is None:
+        return
+    if column not in {
+        "painel_channel_id",
+        "painel_image_url",
+        "aceite_channel_id",
+        "logs_channel_id",
+        "middle_role_id",
+        "middle_category_id",
+    }:
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            f"""
+            INSERT INTO guild_settings (guild_id, {column})
+            VALUES (?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                {column}=excluded.{column}
+            """,
+            (int(guild_id), value)
+        )
+        conn.commit()
+
+
+def _get_guild_setting(guild_id, column):
+    if _id_int(guild_id) is None:
+        return None
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            f"SELECT {column} FROM guild_settings WHERE guild_id = ?",
+            (int(guild_id),)
+        ).fetchone()
+    if not row:
+        return None
+    return row[0]
 
 
 def set_painel_canal(guild_id, channel_id):
-    data = carregar_painel_config()
-    entry = data.get(str(guild_id))
-    if isinstance(entry, dict):
-        entry["channel_id"] = int(channel_id)
-        data[str(guild_id)] = entry
-    else:
-        data[str(guild_id)] = {"channel_id": int(channel_id), "image_url": None}
-    salvar_painel_config(data)
+    _set_guild_setting(guild_id, "painel_channel_id", _id_int(channel_id))
 
 
 def get_painel_canal_id(guild_id):
-    data = carregar_painel_config()
-    entry = data.get(str(guild_id))
-    if isinstance(entry, dict):
-        return _id_int(entry.get("channel_id"))
-    return _id_int(entry)
+    return _id_int(_get_guild_setting(guild_id, "painel_channel_id"))
 
 
 def set_painel_image_url(guild_id, image_url):
-    data = carregar_painel_config()
-    entry = data.get(str(guild_id))
-    if isinstance(entry, dict):
-        entry["image_url"] = image_url
-        data[str(guild_id)] = entry
-    else:
-        data[str(guild_id)] = {"channel_id": _id_int(entry), "image_url": image_url}
-    salvar_painel_config(data)
+    _set_guild_setting(guild_id, "painel_image_url", image_url)
 
 
 def get_painel_image_url(guild_id):
-    data = carregar_painel_config()
-    entry = data.get(str(guild_id))
-    if isinstance(entry, dict):
-        url = entry.get("image_url")
-        if isinstance(url, str) and url.strip():
-            return url.strip()
-        return None
+    url = _get_guild_setting(guild_id, "painel_image_url")
+    if isinstance(url, str) and url.strip():
+        return url.strip()
     return None
 
 
@@ -750,72 +976,114 @@ def validar_url_imagem(url):
 
 
 def carregar_aceite_config():
-    if not os.path.exists(ACEITE_CONFIG_FILE):
-        return {}
-    with open(ACEITE_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT guild_id, aceite_channel_id FROM guild_settings WHERE aceite_channel_id IS NOT NULL"
+        ).fetchall()
+    return {str(row["guild_id"]): int(row["aceite_channel_id"]) for row in rows}
 
 
 def salvar_aceite_config(data):
-    with open(ACEITE_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, channel_id in data.items():
+            guild_id = _id_int(guild_key)
+            channel_id = _id_int(channel_id)
+            if guild_id is None or channel_id is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, aceite_channel_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET aceite_channel_id=excluded.aceite_channel_id
+                """,
+                (guild_id, channel_id)
+            )
+        conn.commit()
 
 
 def set_aceite_canal(guild_id, channel_id):
-    data = carregar_aceite_config()
-    data[str(guild_id)] = channel_id
-    salvar_aceite_config(data)
+    _set_guild_setting(guild_id, "aceite_channel_id", _id_int(channel_id))
 
 
 def get_aceite_canal_id(guild_id):
-    data = carregar_aceite_config()
-    return data.get(str(guild_id))
+    return _id_int(_get_guild_setting(guild_id, "aceite_channel_id"))
 
 
 def carregar_logs_config():
-    if not os.path.exists(LOGS_CONFIG_FILE):
-        return {}
-    with open(LOGS_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT guild_id, logs_channel_id FROM guild_settings WHERE logs_channel_id IS NOT NULL"
+        ).fetchall()
+    return {str(row["guild_id"]): int(row["logs_channel_id"]) for row in rows}
 
 
 def salvar_logs_config(data):
-    with open(LOGS_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, channel_id in data.items():
+            guild_id = _id_int(guild_key)
+            channel_id = _id_int(channel_id)
+            if guild_id is None or channel_id is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, logs_channel_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET logs_channel_id=excluded.logs_channel_id
+                """,
+                (guild_id, channel_id)
+            )
+        conn.commit()
 
 
 def set_logs_canal(guild_id, channel_id):
-    data = carregar_logs_config()
-    data[str(guild_id)] = channel_id
-    salvar_logs_config(data)
+    _set_guild_setting(guild_id, "logs_channel_id", _id_int(channel_id))
 
 
 def get_logs_canal_id(guild_id):
-    data = carregar_logs_config()
-    return data.get(str(guild_id))
+    return _id_int(_get_guild_setting(guild_id, "logs_channel_id"))
 
 
 def carregar_role_config():
-    if not os.path.exists(ROLE_CONFIG_FILE):
-        return {}
-    with open(ROLE_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT guild_id, middle_role_id FROM guild_settings WHERE middle_role_id IS NOT NULL"
+        ).fetchall()
+    return {str(row["guild_id"]): int(row["middle_role_id"]) for row in rows}
 
 
 def salvar_role_config(data):
-    with open(ROLE_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, role_id in data.items():
+            guild_id = _id_int(guild_key)
+            role_id = _id_int(role_id)
+            if guild_id is None or role_id is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, middle_role_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET middle_role_id=excluded.middle_role_id
+                """,
+                (guild_id, role_id)
+            )
+        conn.commit()
 
 
 def set_middle_role_id(guild_id, role_id):
-    data = carregar_role_config()
-    data[str(guild_id)] = int(role_id)
-    salvar_role_config(data)
+    _set_guild_setting(guild_id, "middle_role_id", _id_int(role_id))
 
 
 def get_middle_role_id(guild_id):
-    data = carregar_role_config()
-    return _id_int(data.get(str(guild_id)))
+    return _id_int(_get_guild_setting(guild_id, "middle_role_id"))
 
 
 def get_middle_role(guild):
@@ -831,96 +1099,124 @@ def get_middle_role(guild):
 
 
 def carregar_middle_category_config():
-    if not os.path.exists(MIDDLE_CATEGORY_CONFIG_FILE):
-        return {}
-    with open(MIDDLE_CATEGORY_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT guild_id, middle_category_id FROM guild_settings WHERE middle_category_id IS NOT NULL"
+        ).fetchall()
+    return {str(row["guild_id"]): int(row["middle_category_id"]) for row in rows}
 
 
 def salvar_middle_category_config(data):
-    with open(MIDDLE_CATEGORY_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, category_id in data.items():
+            guild_id = _id_int(guild_key)
+            category_id = _id_int(category_id)
+            if guild_id is None or category_id is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, middle_category_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET middle_category_id=excluded.middle_category_id
+                """,
+                (guild_id, category_id)
+            )
+        conn.commit()
 
 
 def set_middle_category_id(guild_id, category_id):
-    data = carregar_middle_category_config()
-    data[str(guild_id)] = int(category_id)
-    salvar_middle_category_config(data)
+    _set_guild_setting(guild_id, "middle_category_id", _id_int(category_id))
 
 
 def get_middle_category_id(guild_id):
-    data = carregar_middle_category_config()
-    return _id_int(data.get(str(guild_id)))
+    return _id_int(_get_guild_setting(guild_id, "middle_category_id"))
 
 
 def carregar_levels_config():
-    if not os.path.exists(LEVELS_CONFIG_FILE):
-        return {}
-    with open(LEVELS_CONFIG_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict):
-        return data
-    return {}
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT guild_id, role_id, min_total FROM guild_levels").fetchall()
+    data = {}
+    for row in rows:
+        data.setdefault(str(row["guild_id"]), []).append(
+            {"role_id": int(row["role_id"]), "min_total": float(row["min_total"])}
+        )
+    for gid in data:
+        data[gid].sort(key=lambda x: x["min_total"])
+    return data
 
 
 def salvar_levels_config(data):
-    with open(LEVELS_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    if not isinstance(data, dict):
+        return
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for guild_key, lista in data.items():
+            guild_id = _id_int(guild_key)
+            if guild_id is None or not isinstance(lista, list):
+                continue
+            conn.execute("DELETE FROM guild_levels WHERE guild_id = ?", (guild_id,))
+            for item in lista:
+                if not isinstance(item, dict):
+                    continue
+                role_id = _id_int(item.get("role_id"))
+                try:
+                    min_total = float(item.get("min_total"))
+                except (TypeError, ValueError):
+                    continue
+                if role_id is None or min_total < 0:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO guild_levels (guild_id, role_id, min_total)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, role_id) DO UPDATE SET min_total=excluded.min_total
+                    """,
+                    (guild_id, role_id, min_total)
+                )
+        conn.commit()
 
 
 def get_levels_guild(guild_id):
-    data = carregar_levels_config()
-    raw = data.get(str(guild_id), [])
+    raw = []
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT role_id, min_total FROM guild_levels WHERE guild_id = ? ORDER BY min_total ASC",
+            (int(guild_id),)
+        ).fetchall()
+    for row in rows:
+        raw.append({"role_id": int(row["role_id"]), "min_total": float(row["min_total"])})
     niveis = []
-    if isinstance(raw, list):
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            role_id = _id_int(item.get("role_id"))
-            min_total = item.get("min_total")
-            try:
-                min_total = float(min_total)
-            except (TypeError, ValueError):
-                continue
-            if role_id is None or min_total < 0:
-                continue
-            niveis.append({"role_id": role_id, "min_total": min_total})
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        role_id = _id_int(item.get("role_id"))
+        min_total = item.get("min_total")
+        try:
+            min_total = float(min_total)
+        except (TypeError, ValueError):
+            continue
+        if role_id is None or min_total < 0:
+            continue
+        niveis.append({"role_id": role_id, "min_total": min_total})
     niveis.sort(key=lambda x: x["min_total"])
     return niveis
 
 
 def set_level_guild(guild_id, role_id, min_total):
-    data = carregar_levels_config()
-    key = str(guild_id)
-    lista = data.get(key, [])
-    if not isinstance(lista, list):
-        lista = []
-
-    updated = False
-    novo = []
-    for item in lista:
-        if not isinstance(item, dict):
-            continue
-        rid = _id_int(item.get("role_id"))
-        if rid is None:
-            continue
-        if rid == int(role_id):
-            novo.append({"role_id": int(role_id), "min_total": float(min_total)})
-            updated = True
-        else:
-            antigo_total = item.get("min_total")
-            try:
-                antigo_total = float(antigo_total)
-            except (TypeError, ValueError):
-                continue
-            novo.append({"role_id": rid, "min_total": antigo_total})
-
-    if not updated:
-        novo.append({"role_id": int(role_id), "min_total": float(min_total)})
-
-    novo.sort(key=lambda x: x["min_total"])
-    data[key] = novo
-    salvar_levels_config(data)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            INSERT INTO guild_levels (guild_id, role_id, min_total)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, role_id) DO UPDATE SET min_total=excluded.min_total
+            """,
+            (int(guild_id), int(role_id), float(min_total))
+        )
+        conn.commit()
 
 
 def carregar_spending_config():
@@ -1124,43 +1420,47 @@ def _normalizar_taxa_config(cfg):
 
 
 def carregar_taxa_config(guild_id=None):
-    if not os.path.exists(TAXA_CONFIG_FILE):
-        return TAXA_PADRAO.copy()
-
-    with open(TAXA_CONFIG_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Compatibilidade com formato antigo (global): { "acima_700_percentual": ... }
-    if isinstance(data, dict) and any(k in data for k in TAXA_PADRAO.keys()):
-        return _normalizar_taxa_config(data)
-
     if guild_id is None:
         return TAXA_PADRAO.copy()
 
-    if isinstance(data, dict):
-        guild_cfg = data.get(str(guild_id), {})
-        return _normalizar_taxa_config(guild_cfg)
-
-    return TAXA_PADRAO.copy()
+    cfg = TAXA_PADRAO.copy()
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        rows = conn.execute(
+            "SELECT faixa, valor FROM guild_taxa WHERE guild_id = ?",
+            (int(guild_id),)
+        ).fetchall()
+        if not rows:
+            rows = conn.execute(
+                "SELECT faixa, valor FROM guild_taxa WHERE guild_id = 0"
+            ).fetchall()
+    for faixa, valor in rows:
+        if faixa in cfg:
+            try:
+                cfg[faixa] = float(valor)
+            except (TypeError, ValueError):
+                continue
+    return _normalizar_taxa_config(cfg)
 
 
 def salvar_taxa_config_guild(guild_id, cfg):
-    data = {}
-    if os.path.exists(TAXA_CONFIG_FILE):
-        with open(TAXA_CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    cfg_norm = _normalizar_taxa_config(cfg)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        for faixa, valor in cfg_norm.items():
+            conn.execute(
+                """
+                INSERT INTO guild_taxa (guild_id, faixa, valor)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id, faixa) DO UPDATE SET valor=excluded.valor
+                """,
+                (int(guild_id), faixa, float(valor))
+            )
+        conn.commit()
 
-    # Se ainda estiver no formato antigo, migra para objeto por servidor.
-    if isinstance(data, dict) and any(k in data for k in TAXA_PADRAO.keys()):
-        legado = _normalizar_taxa_config(data)
-        data = {"_legacy_global": legado}
-    elif not isinstance(data, dict):
-        data = {}
 
-    data[str(guild_id)] = _normalizar_taxa_config(cfg)
-
-    with open(TAXA_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+migrar_dados_legados()
+init_settings_db()
+migrate_json_configs_to_db()
+carregar_estado_tickets_memoria()
 
 
 def criar_embed_painel(guild_id=None):
