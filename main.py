@@ -34,6 +34,8 @@ TICKET_STATE_FILE = os.path.join(APP_DATA_DIR, "ticket_state.json")
 LOGS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "logs_config.json")
 ROLE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "role_config.json")
 MIDDLE_CATEGORY_CONFIG_FILE = os.path.join(APP_DATA_DIR, "middle_category_config.json")
+LEVELS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "levels_config.json")
+SPENDING_CONFIG_FILE = os.path.join(APP_DATA_DIR, "spending_config.json")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
 PANEL_DEFAULT_IMAGE_URL = (
@@ -89,6 +91,8 @@ def migrar_dados_legados():
     migrar_arquivo_legado(TICKET_STATE_FILE, [os.path.join(cwd, "ticket_state.json"), "ticket_state.json"])
     migrar_arquivo_legado(LOGS_CONFIG_FILE, [os.path.join(cwd, "logs_config.json"), "logs_config.json"])
     migrar_arquivo_legado(ROLE_CONFIG_FILE, [os.path.join(cwd, "role_config.json"), "role_config.json"])
+    migrar_arquivo_legado(LEVELS_CONFIG_FILE, [os.path.join(cwd, "levels_config.json"), "levels_config.json"])
+    migrar_arquivo_legado(SPENDING_CONFIG_FILE, [os.path.join(cwd, "spending_config.json"), "spending_config.json"])
 
 
 def setup_logger():
@@ -460,6 +464,7 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
 
     if valor_negociado_num is not None and valor_taxa_num is not None:
         valor_total_txt = f"R$ {valor_negociado_num + valor_taxa_num:.2f}"
+    valor_total_num = (valor_negociado_num + valor_taxa_num) if (valor_negociado_num is not None and valor_taxa_num is not None) else None
 
     ids_participantes = set()
     if isinstance(partes, dict):
@@ -483,6 +488,20 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
             f"- Adicionado: {_formatar_mencao_usuario(uid)}"
             for uid in sorted(ids_participantes)
         )
+
+    if valor_total_num is not None and ids_participantes:
+        for uid in ids_participantes:
+            try:
+                novo_total = adicionar_gasto_usuario(guild.id, uid, valor_total_num)
+                await atualizar_cargos_niveis_usuario(guild, uid, novo_total)
+            except Exception:
+                logger.exception(
+                    "Falha ao processar niveis por gasto guild_id=%s canal_id=%s user_id=%s valor=%s",
+                    guild.id,
+                    canal_id,
+                    uid,
+                    valor_total_num
+                )
 
     mensagem = (
         f"Ticket fechado: {canal.name} (`{canal.id}`)\n"
@@ -746,6 +765,169 @@ def set_middle_category_id(guild_id, category_id):
 def get_middle_category_id(guild_id):
     data = carregar_middle_category_config()
     return _id_int(data.get(str(guild_id)))
+
+
+def carregar_levels_config():
+    if not os.path.exists(LEVELS_CONFIG_FILE):
+        return {}
+    with open(LEVELS_CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def salvar_levels_config(data):
+    with open(LEVELS_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def get_levels_guild(guild_id):
+    data = carregar_levels_config()
+    raw = data.get(str(guild_id), [])
+    niveis = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            role_id = _id_int(item.get("role_id"))
+            min_total = item.get("min_total")
+            try:
+                min_total = float(min_total)
+            except (TypeError, ValueError):
+                continue
+            if role_id is None or min_total < 0:
+                continue
+            niveis.append({"role_id": role_id, "min_total": min_total})
+    niveis.sort(key=lambda x: x["min_total"])
+    return niveis
+
+
+def set_level_guild(guild_id, role_id, min_total):
+    data = carregar_levels_config()
+    key = str(guild_id)
+    lista = data.get(key, [])
+    if not isinstance(lista, list):
+        lista = []
+
+    updated = False
+    novo = []
+    for item in lista:
+        if not isinstance(item, dict):
+            continue
+        rid = _id_int(item.get("role_id"))
+        if rid is None:
+            continue
+        if rid == int(role_id):
+            novo.append({"role_id": int(role_id), "min_total": float(min_total)})
+            updated = True
+        else:
+            antigo_total = item.get("min_total")
+            try:
+                antigo_total = float(antigo_total)
+            except (TypeError, ValueError):
+                continue
+            novo.append({"role_id": rid, "min_total": antigo_total})
+
+    if not updated:
+        novo.append({"role_id": int(role_id), "min_total": float(min_total)})
+
+    novo.sort(key=lambda x: x["min_total"])
+    data[key] = novo
+    salvar_levels_config(data)
+
+
+def carregar_spending_config():
+    if not os.path.exists(SPENDING_CONFIG_FILE):
+        return {}
+    with open(SPENDING_CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def salvar_spending_config(data):
+    with open(SPENDING_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def adicionar_gasto_usuario(guild_id, user_id, valor):
+    data = carregar_spending_config()
+    guild_key = str(guild_id)
+    user_key = str(user_id)
+    guild_data = data.get(guild_key, {})
+    if not isinstance(guild_data, dict):
+        guild_data = {}
+
+    atual = guild_data.get(user_key, 0.0)
+    try:
+        atual = float(atual)
+    except (TypeError, ValueError):
+        atual = 0.0
+
+    novo_total = atual + float(valor)
+    guild_data[user_key] = round(novo_total, 2)
+    data[guild_key] = guild_data
+    salvar_spending_config(data)
+    return float(guild_data[user_key])
+
+
+async def atualizar_cargos_niveis_usuario(guild, user_id, total_gasto):
+    if guild is None:
+        return
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            return
+
+    niveis = get_levels_guild(guild.id)
+    if not niveis:
+        return
+
+    for nivel in niveis:
+        role = guild.get_role(nivel["role_id"])
+        if role is None:
+            continue
+        deve_ter = float(total_gasto) >= float(nivel["min_total"])
+        tem_role = role in member.roles
+
+        if deve_ter and not tem_role:
+            try:
+                await member.add_roles(role, reason=f"Nível de gasto atingido: R$ {nivel['min_total']:.2f}")
+            except discord.Forbidden:
+                logger.warning(
+                    "Sem permissao para adicionar cargo de nivel guild_id=%s user_id=%s role_id=%s",
+                    guild.id,
+                    user_id,
+                    role.id
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao adicionar cargo de nivel guild_id=%s user_id=%s role_id=%s",
+                    guild.id,
+                    user_id,
+                    role.id
+                )
+        elif (not deve_ter) and tem_role:
+            try:
+                await member.remove_roles(role, reason=f"Nível de gasto não atendido: R$ {nivel['min_total']:.2f}")
+            except discord.Forbidden:
+                logger.warning(
+                    "Sem permissao para remover cargo de nivel guild_id=%s user_id=%s role_id=%s",
+                    guild.id,
+                    user_id,
+                    role.id
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao remover cargo de nivel guild_id=%s user_id=%s role_id=%s",
+                    guild.id,
+                    user_id,
+                    role.id
+                )
 
 
 def _normalizar_taxa_config(cfg):
@@ -3841,6 +4023,42 @@ async def setcmiddle(interaction: discord.Interaction, categoria: discord.Catego
     set_middle_category_id(interaction.guild.id, categoria.id)
     await interaction.response.send_message(
         f"✅ Categoria de tickets configurada para **{categoria.name}**.",
+        ephemeral=True, delete_after=60
+    )
+
+
+@bot.tree.command(name="setnvl", description="Configura cargo de nível por valor gasto")
+@app_commands.describe(
+    cargo="Cargo que será concedido no nível",
+    valor="Valor mínimo acumulado para receber o cargo"
+)
+async def setnvl(interaction: discord.Interaction, cargo: discord.Role, valor: float):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    if valor < 0:
+        await interaction.response.send_message(
+            "O valor mínimo não pode ser negativo.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    set_level_guild(interaction.guild.id, cargo.id, valor)
+    niveis = get_levels_guild(interaction.guild.id)
+
+    linhas = []
+    for nivel in niveis:
+        role = interaction.guild.get_role(nivel["role_id"])
+        role_txt = role.mention if role else f"`{nivel['role_id']}`"
+        linhas.append(f"- {role_txt}: R$ {nivel['min_total']:.2f}")
+    resumo = "\n".join(linhas) if linhas else "Nenhum nível configurado."
+
+    await interaction.response.send_message(
+        f"✅ Nível atualizado: {cargo.mention} em **R$ {valor:.2f}**.\n\n**Níveis deste servidor:**\n{resumo}",
         ephemeral=True, delete_after=60
     )
 
