@@ -450,20 +450,11 @@ def _formatar_mencao_usuario(user_id):
     return f"<@{uid}> (`{uid}`)"
 
 
-async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
+async def enviar_log_fechamento_ticket(guild, canal):
     if guild is None or canal is None:
         return
 
     canal_id = canal.id
-    creator_id = None
-    for alvo, overwrite in canal.overwrites.items():
-        if isinstance(alvo, discord.Member) and overwrite.view_channel is True:
-            if alvo.bot:
-                continue
-            if alvo.id == ticket_middleman.get(canal_id):
-                continue
-            creator_id = alvo.id
-            break
 
     middle_id = ticket_middleman.get(canal_id)
     partes = ticket_parties.get(canal_id, {})
@@ -975,35 +966,6 @@ def validar_url_imagem(url):
     return url.startswith("http://") or url.startswith("https://")
 
 
-def carregar_aceite_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT guild_id, aceite_channel_id FROM guild_settings WHERE aceite_channel_id IS NOT NULL"
-        ).fetchall()
-    return {str(row["guild_id"]): int(row["aceite_channel_id"]) for row in rows}
-
-
-def salvar_aceite_config(data):
-    if not isinstance(data, dict):
-        return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        for guild_key, channel_id in data.items():
-            guild_id = _id_int(guild_key)
-            channel_id = _id_int(channel_id)
-            if guild_id is None or channel_id is None:
-                continue
-            conn.execute(
-                """
-                INSERT INTO guild_settings (guild_id, aceite_channel_id)
-                VALUES (?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET aceite_channel_id=excluded.aceite_channel_id
-                """,
-                (guild_id, channel_id)
-            )
-        conn.commit()
-
-
 def set_aceite_canal(guild_id, channel_id):
     _set_guild_setting(guild_id, "aceite_channel_id", _id_int(channel_id))
 
@@ -1012,70 +974,12 @@ def get_aceite_canal_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "aceite_channel_id"))
 
 
-def carregar_logs_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT guild_id, logs_channel_id FROM guild_settings WHERE logs_channel_id IS NOT NULL"
-        ).fetchall()
-    return {str(row["guild_id"]): int(row["logs_channel_id"]) for row in rows}
-
-
-def salvar_logs_config(data):
-    if not isinstance(data, dict):
-        return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        for guild_key, channel_id in data.items():
-            guild_id = _id_int(guild_key)
-            channel_id = _id_int(channel_id)
-            if guild_id is None or channel_id is None:
-                continue
-            conn.execute(
-                """
-                INSERT INTO guild_settings (guild_id, logs_channel_id)
-                VALUES (?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET logs_channel_id=excluded.logs_channel_id
-                """,
-                (guild_id, channel_id)
-            )
-        conn.commit()
-
-
 def set_logs_canal(guild_id, channel_id):
     _set_guild_setting(guild_id, "logs_channel_id", _id_int(channel_id))
 
 
 def get_logs_canal_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "logs_channel_id"))
-
-
-def carregar_role_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT guild_id, middle_role_id FROM guild_settings WHERE middle_role_id IS NOT NULL"
-        ).fetchall()
-    return {str(row["guild_id"]): int(row["middle_role_id"]) for row in rows}
-
-
-def salvar_role_config(data):
-    if not isinstance(data, dict):
-        return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        for guild_key, role_id in data.items():
-            guild_id = _id_int(guild_key)
-            role_id = _id_int(role_id)
-            if guild_id is None or role_id is None:
-                continue
-            conn.execute(
-                """
-                INSERT INTO guild_settings (guild_id, middle_role_id)
-                VALUES (?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET middle_role_id=excluded.middle_role_id
-                """,
-                (guild_id, role_id)
-            )
-        conn.commit()
 
 
 def set_middle_role_id(guild_id, role_id):
@@ -1098,85 +1002,12 @@ def get_middle_role(guild):
     return discord.utils.get(guild.roles, name="Middle Man")
 
 
-def carregar_middle_category_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT guild_id, middle_category_id FROM guild_settings WHERE middle_category_id IS NOT NULL"
-        ).fetchall()
-    return {str(row["guild_id"]): int(row["middle_category_id"]) for row in rows}
-
-
-def salvar_middle_category_config(data):
-    if not isinstance(data, dict):
-        return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        for guild_key, category_id in data.items():
-            guild_id = _id_int(guild_key)
-            category_id = _id_int(category_id)
-            if guild_id is None or category_id is None:
-                continue
-            conn.execute(
-                """
-                INSERT INTO guild_settings (guild_id, middle_category_id)
-                VALUES (?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET middle_category_id=excluded.middle_category_id
-                """,
-                (guild_id, category_id)
-            )
-        conn.commit()
-
-
 def set_middle_category_id(guild_id, category_id):
     _set_guild_setting(guild_id, "middle_category_id", _id_int(category_id))
 
 
 def get_middle_category_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "middle_category_id"))
-
-
-def carregar_levels_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT guild_id, role_id, min_total FROM guild_levels").fetchall()
-    data = {}
-    for row in rows:
-        data.setdefault(str(row["guild_id"]), []).append(
-            {"role_id": int(row["role_id"]), "min_total": float(row["min_total"])}
-        )
-    for gid in data:
-        data[gid].sort(key=lambda x: x["min_total"])
-    return data
-
-
-def salvar_levels_config(data):
-    if not isinstance(data, dict):
-        return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
-        for guild_key, lista in data.items():
-            guild_id = _id_int(guild_key)
-            if guild_id is None or not isinstance(lista, list):
-                continue
-            conn.execute("DELETE FROM guild_levels WHERE guild_id = ?", (guild_id,))
-            for item in lista:
-                if not isinstance(item, dict):
-                    continue
-                role_id = _id_int(item.get("role_id"))
-                try:
-                    min_total = float(item.get("min_total"))
-                except (TypeError, ValueError):
-                    continue
-                if role_id is None or min_total < 0:
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO guild_levels (guild_id, role_id, min_total)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(guild_id, role_id) DO UPDATE SET min_total=excluded.min_total
-                    """,
-                    (guild_id, role_id, min_total)
-                )
-        conn.commit()
 
 
 def get_levels_guild(guild_id):
@@ -2615,11 +2446,9 @@ class FecharTicketView(discord.ui.View):
 
             canal_id = self.canal.id
             guild = self.canal.guild
-            closed_by_id = interaction.user.id
-
             if deve_enviar_log_fechamento(canal_id):
                 try:
-                    await enviar_log_fechamento_ticket(guild, self.canal, closed_by_id)
+                    await enviar_log_fechamento_ticket(guild, self.canal)
                 except Exception:
                     logger.exception(
                         "Falha ao registrar fechamento de ticket canal_id=%s guild_id=%s",
@@ -2932,27 +2761,6 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
 
 
-class ValorView(discord.ui.View):
-    def __init__(self, canal, comprador, vendedor):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.comprador = comprador
-        self.vendedor = vendedor
-        self.msg = None
-
-    @discord.ui.button(label="Informar valor", style=ESTILO_BOTAO["primario"])
-    async def informar(self, interaction, button):
-        if interaction.user != self.comprador:
-            await interaction.response.send_message(
-                "Somente o comprador pode informar o valor.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        await interaction.response.send_modal(
-            ValorModal(self.canal, self.comprador, self.vendedor)
-        )
-
-
 class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
     brainrot_nome = discord.ui.TextInput(label="Qual brainrot será vendido?", max_length=120)
 
@@ -2999,27 +2807,6 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
             await self.origem_view.marcar_brainrot_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
         await interaction.response.send_message("Brainrot salvo.", ephemeral=True, delete_after=60)
-
-
-class BrainrotNomeView(discord.ui.View):
-    def __init__(self, canal, comprador, vendedor):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.comprador = comprador
-        self.vendedor = vendedor
-        self.msg = None
-
-    @discord.ui.button(label="Informar brainrot", style=ESTILO_BOTAO["primario"])
-    async def informar_brainrot(self, interaction, button):
-        if interaction.user != self.vendedor:
-            await interaction.response.send_message(
-                "Somente o vendedor pode informar o brainrot.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        await interaction.response.send_modal(
-            BrainrotNomeModal(self.canal, self.comprador, self.vendedor)
-        )
 
 
 class NegociacaoDadosView(discord.ui.View):
