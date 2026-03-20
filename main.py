@@ -1272,11 +1272,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed_qr.set_image(url="attachment://pix_item_brainrot.png")
         await canal.send(embed=embed_qr, file=file)
-        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "⏳ Aguardando pagamento do comprador...",
-            view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor),
+            view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor, pix_copia_cola),
             cor=cor_paleta("aviso")
         )
         return True, None
@@ -1300,11 +1299,10 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         embed.set_image(url="attachment://trade_pix.png")
         await canal.send(embed=embed, file=file)
-        await canal.send(view=PixCopiaColaView(pix_copia_cola))
         await enviar_fluxo(
             canal,
             "Aguardando confirmação de pagamento...",
-            view=ConfirmarPagamentoTradePixView(canal, pessoa1, pessoa2, middle_id),
+            view=ConfirmarPagamentoTradePixView(canal, pessoa1, pessoa2, middle_id, pix_copia_cola),
             cor=cor_paleta("aviso")
         )
         return True, None
@@ -1684,13 +1682,23 @@ class ConfirmarTaxaBrainrotView(discord.ui.View):
             estado["etapa"] = "aguardando_pagamento_brainrot_pix"
 
 class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
-    def __init__(self, canal, comprador, vendedor):
+    def __init__(self, canal, comprador, vendedor, pix_copia_cola=None):
         super().__init__(timeout=None)
         self.canal = canal
         self.comprador = comprador
         self.vendedor = vendedor
+        self.pix_copia_cola = pix_copia_cola
+        if not self.pix_copia_cola:
+            self.remove_item(self.copiar_codigo)
 
-    @discord.ui.button(label="Recebi o pagamento em PIX", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
+    async def copiar_codigo(self, interaction, button):
+        await interaction.response.send_message(
+            f"`{self.pix_copia_cola}`",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Confirmar Taxa ( MM )", style=ESTILO_BOTAO["aviso"], row=0)
     async def confirmar_pagamento(self, interaction, button):
         try:
             if await em_cooldown(interaction, "confirmar_pagamento_brainrot_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
@@ -2521,14 +2529,24 @@ class TradeFinalConfirmView(discord.ui.View):
 
 
 class ConfirmarPagamentoTradePixView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2, middle_id):
+    def __init__(self, canal, pessoa1, pessoa2, middle_id, pix_copia_cola=None):
         super().__init__(timeout=None)
         self.canal = canal
         self.pessoa1 = pessoa1
         self.pessoa2 = pessoa2
         self.middle_id = middle_id
+        self.pix_copia_cola = pix_copia_cola
+        if not self.pix_copia_cola:
+            self.remove_item(self.copiar_codigo)
 
-    @discord.ui.button(label="Recebi o pagamento", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
+    async def copiar_codigo(self, interaction, button):
+        await interaction.response.send_message(
+            f"`{self.pix_copia_cola}`",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Confirmar Pagamento ( MM )", style=ESTILO_BOTAO["aviso"], row=0)
     async def confirmar_pagamento(self, interaction, button):
         if await em_cooldown(interaction, "trade_confirmar_pagamento_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
