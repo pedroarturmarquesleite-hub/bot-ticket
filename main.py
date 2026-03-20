@@ -36,6 +36,7 @@ ROLE_CONFIG_FILE = os.path.join(APP_DATA_DIR, "role_config.json")
 MIDDLE_CATEGORY_CONFIG_FILE = os.path.join(APP_DATA_DIR, "middle_category_config.json")
 LEVELS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "levels_config.json")
 SPENDING_CONFIG_FILE = os.path.join(APP_DATA_DIR, "spending_config.json")
+MM_TAXA_METRICS_FILE = os.path.join(APP_DATA_DIR, "mm_taxa_metrics.json")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
 PANEL_DEFAULT_IMAGE_URL = (
@@ -93,6 +94,7 @@ def migrar_dados_legados():
     migrar_arquivo_legado(ROLE_CONFIG_FILE, [os.path.join(cwd, "role_config.json"), "role_config.json"])
     migrar_arquivo_legado(LEVELS_CONFIG_FILE, [os.path.join(cwd, "levels_config.json"), "levels_config.json"])
     migrar_arquivo_legado(SPENDING_CONFIG_FILE, [os.path.join(cwd, "spending_config.json"), "spending_config.json"])
+    migrar_arquivo_legado(MM_TAXA_METRICS_FILE, [os.path.join(cwd, "mm_taxa_metrics.json"), "mm_taxa_metrics.json"])
 
 
 def setup_logger():
@@ -462,6 +464,18 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
                 valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id))
                 valor_taxa_txt = f"R$ {valor_taxa_num:.2f}"
 
+    if middle_id is not None and valor_taxa_num is not None and valor_taxa_num > 0:
+        try:
+            registrar_mm_taxa(guild.id, middle_id, valor_taxa_num)
+        except Exception:
+            logger.exception(
+                "Falha ao registrar taxa de middle guild_id=%s canal_id=%s middle_id=%s taxa=%s",
+                guild.id,
+                canal_id,
+                middle_id,
+                valor_taxa_num
+            )
+
     if valor_negociado_num is not None and valor_taxa_num is not None:
         valor_total_txt = f"R$ {valor_negociado_num + valor_taxa_num:.2f}"
     valor_total_num = (valor_negociado_num + valor_taxa_num) if (valor_negociado_num is not None and valor_taxa_num is not None) else None
@@ -489,10 +503,12 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
             for uid in sorted(ids_participantes)
         )
 
+    totais_gastos_participantes = {}
     if valor_total_num is not None and ids_participantes:
         for uid in ids_participantes:
             try:
                 novo_total = adicionar_gasto_usuario(guild.id, uid, valor_total_num)
+                totais_gastos_participantes[uid] = novo_total
                 await atualizar_cargos_niveis_usuario(guild, uid, novo_total)
             except Exception:
                 logger.exception(
@@ -502,6 +518,9 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
                     uid,
                     valor_total_num
                 )
+    else:
+        for uid in ids_participantes:
+            totais_gastos_participantes[uid] = obter_gasto_usuario(guild.id, uid)
 
     mensagem = (
         f"Ticket fechado: {canal.name} (`{canal.id}`)\n"
@@ -515,28 +534,27 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     logger.info(mensagem)
 
     logs_channel_id = _id_int(get_logs_canal_id(guild.id))
-    if logs_channel_id is None:
-        return
+    canal_logs = None
+    if logs_channel_id is not None:
+        canal_logs = guild.get_channel(logs_channel_id)
+        if canal_logs is None:
+            try:
+                canal_logs = await guild.fetch_channel(logs_channel_id)
+            except Exception:
+                logger.warning(
+                    "Nao foi possivel encontrar canal de logs guild_id=%s channel_id=%s",
+                    guild.id,
+                    logs_channel_id
+                )
+                canal_logs = None
 
-    canal_logs = guild.get_channel(logs_channel_id)
-    if canal_logs is None:
-        try:
-            canal_logs = await guild.fetch_channel(logs_channel_id)
-        except Exception:
+        if canal_logs is not None and not isinstance(canal_logs, discord.TextChannel):
             logger.warning(
-                "Nao foi possivel encontrar canal de logs guild_id=%s channel_id=%s",
+                "Canal configurado de logs nao eh TextChannel guild_id=%s channel_id=%s",
                 guild.id,
                 logs_channel_id
             )
-            return
-
-    if not isinstance(canal_logs, discord.TextChannel):
-        logger.warning(
-            "Canal configurado de logs nao eh TextChannel guild_id=%s channel_id=%s",
-            guild.id,
-            logs_channel_id
-        )
-        return
+            canal_logs = None
 
     tipo_base = "Troca venda/compra"
     cor = cor_paleta("primario")
@@ -581,20 +599,60 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     )
     embed.set_thumbnail(url="https://media.discordapp.net/attachments/1473531494432641034/1484349942901379124/image.png?ex=69bde81c&is=69bc969c&hm=45aecc9cefb2d3080c502b6d3d19d19d7f7bd5aa07c6077689bb2bb9ef78376b&=&format=webp&quality=lossless&width=975&height=975")
     embed.set_footer(text="Automático")
-    try:
-        await canal_logs.send(embed=embed)
-    except discord.Forbidden:
-        logger.warning(
-            "Sem permissao para enviar logs no canal guild_id=%s channel_id=%s",
-            guild.id,
-            logs_channel_id
+    if canal_logs is not None:
+        try:
+            await canal_logs.send(embed=embed)
+        except discord.Forbidden:
+            logger.warning(
+                "Sem permissao para enviar logs no canal guild_id=%s channel_id=%s",
+                guild.id,
+                logs_channel_id
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar log no Discord guild_id=%s channel_id=%s",
+                guild.id,
+                logs_channel_id
+            )
+
+    for uid in sorted(ids_participantes):
+        membro = guild.get_member(uid)
+        if membro is None:
+            try:
+                membro = await guild.fetch_member(uid)
+            except Exception:
+                continue
+
+        total_gasto_usuario = totais_gastos_participantes.get(uid, obter_gasto_usuario(guild.id, uid))
+        embed_pv = discord.Embed(
+            title=titulo_log,
+            description=(
+                "Seu ticket foi finalizado com sucesso.\n\n"
+                f"• **Tipo:** {tipo_base}\n"
+                f"• **Valor do ticket:** {valor_resumo}\n"
+                f"• **Total gasto no servidor:** R$ {total_gasto_usuario:.2f}\n"
+                f"• **Horário:** {horario_txt}"
+            ),
+            color=cor_paleta("primario")
         )
-    except Exception:
-        logger.exception(
-            "Falha ao enviar log no Discord guild_id=%s channel_id=%s",
-            guild.id,
-            logs_channel_id
-        )
+        embed_pv.set_footer(text=f"Servidor: {guild.name}")
+
+        try:
+            await membro.send(embed=embed_pv)
+        except discord.Forbidden:
+            logger.info(
+                "PV bloqueado para envio de log de ticket guild_id=%s user_id=%s canal_id=%s",
+                guild.id,
+                uid,
+                canal.id
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar log no PV guild_id=%s user_id=%s canal_id=%s",
+                guild.id,
+                uid,
+                canal.id
+            )
 
 
 migrar_dados_legados()
@@ -873,6 +931,18 @@ def adicionar_gasto_usuario(guild_id, user_id, valor):
     return float(guild_data[user_key])
 
 
+def obter_gasto_usuario(guild_id, user_id):
+    data = carregar_spending_config()
+    guild_data = data.get(str(guild_id), {})
+    if not isinstance(guild_data, dict):
+        return 0.0
+    valor = guild_data.get(str(user_id), 0.0)
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def atualizar_cargos_niveis_usuario(guild, user_id, total_gasto):
     if guild is None:
         return
@@ -928,6 +998,91 @@ async def atualizar_cargos_niveis_usuario(guild, user_id, total_gasto):
                     user_id,
                     role.id
                 )
+
+
+def carregar_mm_taxa_metrics():
+    if not os.path.exists(MM_TAXA_METRICS_FILE):
+        return {}
+    with open(MM_TAXA_METRICS_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def salvar_mm_taxa_metrics(data):
+    with open(MM_TAXA_METRICS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def registrar_mm_taxa(guild_id, middle_id, valor_taxa):
+    if middle_id is None:
+        return
+    try:
+        valor = float(valor_taxa)
+    except (TypeError, ValueError):
+        return
+    if valor <= 0:
+        return
+
+    data = carregar_mm_taxa_metrics()
+    guild_key = str(guild_id)
+    eventos = data.get(guild_key, [])
+    if not isinstance(eventos, list):
+        eventos = []
+
+    agora = int(discord.utils.utcnow().timestamp())
+    eventos.append(
+        {
+            "middle_id": int(middle_id),
+            "valor_taxa": round(valor, 2),
+            "ts": agora
+        }
+    )
+
+    # Mantem 30 dias para não crescer indefinidamente.
+    limite = agora - (30 * 24 * 60 * 60)
+    eventos = [
+        e for e in eventos
+        if isinstance(e, dict) and _id_int(e.get("ts")) is not None and int(e.get("ts")) >= limite
+    ]
+    data[guild_key] = eventos
+    salvar_mm_taxa_metrics(data)
+
+
+def ranking_mm_taxa_24h(guild_id):
+    data = carregar_mm_taxa_metrics()
+    eventos = data.get(str(guild_id), [])
+    if not isinstance(eventos, list):
+        return []
+
+    agora = int(discord.utils.utcnow().timestamp())
+    limite = agora - (24 * 60 * 60)
+    ranking = {}
+    eventos_validos = []
+
+    for evento in eventos:
+        if not isinstance(evento, dict):
+            continue
+        ts = _id_int(evento.get("ts"))
+        middle_id = _id_int(evento.get("middle_id"))
+        try:
+            valor = float(evento.get("valor_taxa"))
+        except (TypeError, ValueError):
+            continue
+        if ts is None or middle_id is None or valor <= 0:
+            continue
+        if ts >= limite:
+            ranking[middle_id] = ranking.get(middle_id, 0.0) + valor
+        if ts >= (agora - (30 * 24 * 60 * 60)):
+            eventos_validos.append(
+                {"middle_id": middle_id, "valor_taxa": round(valor, 2), "ts": ts}
+            )
+
+    data[str(guild_id)] = eventos_validos
+    salvar_mm_taxa_metrics(data)
+
+    return sorted(ranking.items(), key=lambda x: x[1], reverse=True)
 
 
 def _normalizar_taxa_config(cfg):
@@ -4216,6 +4371,40 @@ async def cobrar(interaction: discord.Interaction, valor: float):
 
     await interaction.response.send_message(embed=embed, file=file)
     await interaction.followup.send(view=PixCopiaColaView(pix_copia_cola))
+
+
+@bot.tree.command(name="mmt", description="Mostra o ranking de taxa dos Middle Man nas últimas 24h")
+async def mmt(interaction: discord.Interaction):
+    role = get_middle_role(interaction.guild)
+    is_middle = role in interaction.user.roles if role else False
+    is_admin = interaction.user.guild_permissions.administrator
+
+    if not (is_middle or is_admin):
+        await interaction.response.send_message(
+            "Apenas administradores ou quem tem o cargo de Middle configurado pode usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    ranking = ranking_mm_taxa_24h(interaction.guild.id)
+    if not ranking:
+        await interaction.response.send_message(
+            "Nenhuma taxa registrada nas últimas 24 horas.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    linhas = []
+    for i, (middle_id, total) in enumerate(ranking[:10], start=1):
+        linhas.append(f"**{i}.** <@{middle_id}> — `R$ {total:.2f}`")
+
+    embed = discord.Embed(
+        title="📊 Ranking MM (últimas 24h)",
+        description="\n".join(linhas),
+        color=cor_paleta("info")
+    )
+    embed.set_footer(text=f"Servidor: {interaction.guild.name}")
+    await interaction.response.send_message(embed=embed)
 
 
 token = os.getenv("DISCORD_TOKEN")
