@@ -539,26 +539,29 @@ async def enviar_log_fechamento_ticket(guild, canal, closed_by_id):
     horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
     horario_txt = horario_brasilia.strftime("%d/%m/%Y %H:%M (BRT)")
 
+    numero_ticket = None
+    m_ticket = re.search(r"(\d+)$", canal.name or "")
+    if m_ticket:
+        numero_ticket = m_ticket.group(1)
+
+    titulo_log = f"✅ Intermediação #{numero_ticket}" if numero_ticket else "✅ Intermediação"
+    prova_txt = f"Proof #{numero_ticket}" if numero_ticket else f"Ticket ID: {canal.id}"
+    middle_txt = _formatar_mencao_usuario(middle_id)
+
     embed = discord.Embed(
-        title=f"✅ Intermediação {canal.name}",
+        title=titulo_log,
         description=(
-            "• Nova intermediação concluída com sucesso.\n"
-            f"• Tipo: `{tipo_base}`"
-        ),
-        color=cor
-    )
-    embed.set_thumbnail(url="https://media.discordapp.net/attachments/1473531494432641034/1484349942901379124/image.png?ex=69bde81c&is=69bc969c&hm=45aecc9cefb2d3080c502b6d3d19d19d7f7bd5aa07c6077689bb2bb9ef78376b&=&format=webp&quality=lossless&width=975&height=975")
-    embed.add_field(name="• Valor", value=valor_resumo, inline=False)
-    embed.add_field(name="• Participantes", value=participantes_resumo_txt, inline=False)
-    embed.add_field(
-        name="• Middle Man",
-        value=(
-            f"{_formatar_mencao_usuario(middle_id)}\n"
+            "• **Nova intermediação concluída com sucesso!**\n"
+            f"{prova_txt}\n\n"
+            f"• **Valor:** {valor_resumo}\n"
+            f"• **Participantes:** {participantes_resumo_txt}\n"
+            f"• **Middle Man:** {middle_txt}\n"
             f"🗓️ {horario_txt}"
         ),
-        inline=False
+        color=cor_paleta("primario")
     )
-    embed.set_footer(text=f"Ticket ID: {canal.id} • Automático")
+    embed.set_thumbnail(url="https://media.discordapp.net/attachments/1473531494432641034/1484349942901379124/image.png?ex=69bde81c&is=69bc969c&hm=45aecc9cefb2d3080c502b6d3d19d19d7f7bd5aa07c6077689bb2bb9ef78376b&=&format=webp&quality=lossless&width=975&height=975")
+    embed.set_footer(text="Automático")
     try:
         await canal_logs.send(embed=embed)
     except discord.Forbidden:
