@@ -18,7 +18,7 @@ import html
 import io
 from logging.handlers import RotatingFileHandler
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -1392,6 +1392,67 @@ def ranking_mm_taxa_24h(guild_id):
     return sorted(ranking.items(), key=lambda x: x[1], reverse=True)
 
 
+def ranking_mm_taxa_por_data(guild_id, data_brt_ref):
+    data = carregar_mm_taxa_metrics()
+    eventos = data.get(str(guild_id), [])
+    if not isinstance(eventos, list):
+        return []
+
+    agora = int(discord.utils.utcnow().timestamp())
+    ranking = {}
+    eventos_validos = []
+
+    for evento in eventos:
+        if not isinstance(evento, dict):
+            continue
+        ts = _id_int(evento.get("ts"))
+        middle_id = _id_int(evento.get("middle_id"))
+        try:
+            valor = float(evento.get("valor_taxa"))
+        except (TypeError, ValueError):
+            continue
+        if ts is None or middle_id is None or valor <= 0:
+            continue
+
+        dt_evento_brt = datetime.fromtimestamp(ts, tz=ZoneInfo("America/Sao_Paulo"))
+        if dt_evento_brt.date() == data_brt_ref:
+            ranking[middle_id] = ranking.get(middle_id, 0.0) + valor
+        if ts >= (agora - (30 * 24 * 60 * 60)):
+            eventos_validos.append(
+                {"middle_id": middle_id, "valor_taxa": round(valor, 2), "ts": ts}
+            )
+
+    data[str(guild_id)] = eventos_validos
+    salvar_mm_taxa_metrics(data)
+    return sorted(ranking.items(), key=lambda x: x[1], reverse=True)
+
+
+def get_ultimo_envio_ranking_diario(guild_id):
+    key = f"daily_rank_sent_{int(guild_id)}"
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            "SELECT value FROM migration_meta WHERE key = ?",
+            (key,)
+        ).fetchone()
+    if not row:
+        return None
+    return str(row[0])
+
+
+def set_ultimo_envio_ranking_diario(guild_id, data_iso):
+    key = f"daily_rank_sent_{int(guild_id)}"
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            INSERT INTO migration_meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            (key, str(data_iso))
+        )
+        conn.commit()
+
+
 def _normalizar_taxa_config(cfg):
     base = TAXA_PADRAO.copy()
     if isinstance(cfg, dict):
@@ -1495,6 +1556,7 @@ class botd(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self._painel_inicializado = False
+        self._daily_ranking_task = None
 
     async def setup_hook(self):
         self.tree.on_error = self.on_app_command_error
@@ -1518,6 +1580,71 @@ class botd(discord.Client):
                 await interaction.response.send_message(mensagem, ephemeral=True, delete_after=60)
         except Exception:
             pass
+
+    async def _enviar_ranking_diario_no_log_admin(self, guild: discord.Guild, data_ref):
+        if guild is None:
+            return
+        data_iso = data_ref.isoformat()
+        if get_ultimo_envio_ranking_diario(guild.id) == data_iso:
+            return
+
+        channel_id = get_log_admin_canal_id(guild.id)
+        if channel_id is None:
+            return
+
+        canal = guild.get_channel(channel_id)
+        if canal is None:
+            try:
+                canal = await guild.fetch_channel(channel_id)
+            except Exception:
+                return
+        if not isinstance(canal, discord.TextChannel):
+            return
+
+        ranking = ranking_mm_taxa_por_data(guild.id, data_ref)
+        data_txt = data_ref.strftime("%d/%m/%Y")
+        if ranking:
+            linhas = []
+            for i, (middle_id, total) in enumerate(ranking[:10], start=1):
+                linhas.append(f"**{i}.** <@{middle_id}> — `R$ {total:.2f}`")
+            descricao = "\n".join(linhas)
+        else:
+            descricao = "Nenhuma taxa registrada neste dia."
+
+        embed = discord.Embed(
+            title=f"📊 Ranking Final do Dia ({data_txt} - BRT)",
+            description=descricao,
+            color=cor_paleta("info")
+        )
+        embed.set_footer(text=f"Servidor: {guild.name}")
+        try:
+            await canal.send(embed=embed)
+            set_ultimo_envio_ranking_diario(guild.id, data_iso)
+        except Exception:
+            logger.exception(
+                "Falha ao enviar ranking diario guild_id=%s channel_id=%s data=%s",
+                guild.id,
+                channel_id,
+                data_iso
+            )
+
+    async def _loop_ranking_diario(self):
+        await self.wait_until_ready()
+        while not self.is_closed():
+            try:
+                agora_brt = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
+                proxima_virada = (agora_brt + timedelta(days=1)).replace(hour=0, minute=0, second=5, microsecond=0)
+                espera = max(5, (proxima_virada - agora_brt).total_seconds())
+                await asyncio.sleep(espera)
+
+                data_ref = (discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo")) - timedelta(days=1)).date()
+                for guild in list(self.guilds):
+                    await self._enviar_ranking_diario_no_log_admin(guild, data_ref)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Falha no loop de ranking diario")
+                await asyncio.sleep(30)
 
     async def _buscar_canal_texto(self, canal_id: int):
         canal = self.get_channel(canal_id)
@@ -1764,6 +1891,17 @@ class botd(discord.Client):
 
     async def on_ready(self):
         logger.info("Bot %s ON", self.user)
+        if self._daily_ranking_task is None or self._daily_ranking_task.done():
+            self._daily_ranking_task = asyncio.create_task(self._loop_ranking_diario())
+
+        # Tentativa de envio pendente caso tenha reiniciado após a virada.
+        try:
+            data_ref = (discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo")) - timedelta(days=1)).date()
+            for guild in list(self.guilds):
+                await self._enviar_ranking_diario_no_log_admin(guild, data_ref)
+        except Exception:
+            logger.exception("Falha ao verificar envio pendente de ranking diario")
+
         if self._painel_inicializado:
             return
         self._painel_inicializado = True
@@ -4863,6 +5001,3 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
-
-
-
