@@ -14,6 +14,8 @@ import shutil
 import logging
 import asyncio
 import sqlite3
+import html
+import io
 from logging.handlers import RotatingFileHandler
 import time
 from datetime import datetime
@@ -450,6 +452,35 @@ def _formatar_mencao_usuario(user_id):
     return f"<@{uid}> (`{uid}`)"
 
 
+async def gerar_transcricao_ticket(canal: discord.TextChannel):
+    linhas_txt = []
+    linhas_html = [
+        "<!DOCTYPE html>",
+        "<html><head><meta charset='utf-8'><title>Transcrição</title></head><body>",
+        f"<h2>Transcrição do ticket: {html.escape(canal.name)}</h2>",
+    ]
+
+    async for msg in canal.history(limit=None, oldest_first=True):
+        ts = msg.created_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
+        autor = f"{msg.author} ({msg.author.id})"
+        conteudo = msg.content or ""
+        if msg.attachments:
+            anexos = " | ".join(a.url for a in msg.attachments)
+            conteudo = f"{conteudo}\n[ANEXOS] {anexos}".strip()
+
+        linhas_txt.append(f"[{ts}] {autor}: {conteudo}")
+
+        conteudo_html = html.escape(conteudo).replace("\n", "<br>")
+        linhas_html.append(
+            f"<p><b>[{html.escape(ts)}] {html.escape(autor)}:</b> {conteudo_html}</p>"
+        )
+
+    linhas_html.append("</body></html>")
+    txt_bytes = "\n".join(linhas_txt).encode("utf-8", errors="replace")
+    html_bytes = "\n".join(linhas_html).encode("utf-8", errors="replace")
+    return txt_bytes, html_bytes, len(linhas_txt)
+
+
 async def enviar_log_fechamento_ticket(guild, canal):
     if guild is None or canal is None:
         return
@@ -636,6 +667,43 @@ async def enviar_log_fechamento_ticket(guild, canal):
                 logs_channel_id
             )
 
+    admin_logs_channel_id = _id_int(get_log_admin_canal_id(guild.id))
+    if admin_logs_channel_id is not None:
+        canal_admin_logs = guild.get_channel(admin_logs_channel_id)
+        if canal_admin_logs is None:
+            try:
+                canal_admin_logs = await guild.fetch_channel(admin_logs_channel_id)
+            except Exception:
+                canal_admin_logs = None
+
+        if isinstance(canal_admin_logs, discord.TextChannel):
+            try:
+                txt_bytes, html_bytes, qtd_msgs = await gerar_transcricao_ticket(canal)
+                arq_txt = discord.File(io.BytesIO(txt_bytes), filename=f"transcricao-{canal.id}.txt")
+                arq_html = discord.File(io.BytesIO(html_bytes), filename=f"transcricao-{canal.id}.html")
+                await canal_admin_logs.send(
+                    embed=embed_fluxo(
+                        f"Transcrição gerada para `{canal.name}`.\n"
+                        f"Mensagens: **{qtd_msgs}**",
+                        titulo="🧾 Transcrição do Ticket",
+                        cor=cor_paleta("info")
+                    ),
+                    files=[arq_txt, arq_html]
+                )
+            except discord.Forbidden:
+                logger.warning(
+                    "Sem permissao para enviar transcricao no canal admin guild_id=%s channel_id=%s",
+                    guild.id,
+                    admin_logs_channel_id
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao enviar transcricao no canal admin guild_id=%s channel_id=%s canal_id=%s",
+                    guild.id,
+                    admin_logs_channel_id,
+                    canal.id
+                )
+
     for uid in sorted(ids_participantes):
         membro = guild.get_member(uid)
         if membro is None:
@@ -697,11 +765,16 @@ def init_settings_db():
                 painel_image_url TEXT,
                 aceite_channel_id INTEGER,
                 logs_channel_id INTEGER,
+                log_admin_channel_id INTEGER,
                 middle_role_id INTEGER,
                 middle_category_id INTEGER
             )
             """
         )
+        # Compatibilidade com bancos criados antes do campo log_admin_channel_id.
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(guild_settings)").fetchall()]
+        if "log_admin_channel_id" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN log_admin_channel_id INTEGER")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS guild_taxa (
@@ -908,6 +981,7 @@ def _set_guild_setting(guild_id, column, value):
         "painel_image_url",
         "aceite_channel_id",
         "logs_channel_id",
+        "log_admin_channel_id",
         "middle_role_id",
         "middle_category_id",
     }:
@@ -980,6 +1054,14 @@ def set_logs_canal(guild_id, channel_id):
 
 def get_logs_canal_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "logs_channel_id"))
+
+
+def set_log_admin_canal(guild_id, channel_id):
+    _set_guild_setting(guild_id, "log_admin_channel_id", _id_int(channel_id))
+
+
+def get_log_admin_canal_id(guild_id):
+    return _id_int(_get_guild_setting(guild_id, "log_admin_channel_id"))
 
 
 def set_middle_role_id(guild_id, role_id):
@@ -3774,6 +3856,44 @@ class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def _enviar_confirmacao_abertura(self, interaction, canal, descricao):
+        embed = discord.Embed(
+            description=descricao,
+            color=cor_paleta("sucesso")
+        )
+
+        link_view = discord.ui.View()
+        link_view.add_item(
+            discord.ui.Button(
+                label="Ir para o ticket",
+                url=canal.jump_url
+            )
+        )
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    embed=embed,
+                    view=link_view,
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    embed=embed,
+                    view=link_view,
+                    ephemeral=True
+                )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar confirmacao de abertura de ticket canal_id=%s user_id=%s",
+                canal.id,
+                interaction.user.id
+            )
+            try:
+                await interaction.user.send(embed=embed)
+            except Exception:
+                pass
+
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
         if not aceite_canal_id:
@@ -4027,26 +4147,11 @@ class TicketView(discord.ui.View):
         )
         view.message = msg
 
-        embed = discord.Embed(
-            description=(
-                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
-            ),
-            color=cor_paleta("sucesso")
-        )
-
-        link_view = discord.ui.View()
-        link_view.add_item(
-            discord.ui.Button(
-                label="Ir para o ticket",
-                url=canal.jump_url
-            )
-        )
-
-        await interaction.followup.send(
-            embed=embed,
-            view=link_view,
-            ephemeral=True, delete_after=60
+        await self._enviar_confirmacao_abertura(
+            interaction,
+            canal,
+            f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
+            "Clique abaixo para encontrá-lo."
         )
 
     async def criar_ticket_middleman_brainrot(self, interaction):
@@ -4112,26 +4217,11 @@ class TicketView(discord.ui.View):
         )
         view.message = msg
 
-        embed = discord.Embed(
-            description=(
-                f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
-            ),
-            color=cor_paleta("sucesso")
-        )
-
-        link_view = discord.ui.View()
-        link_view.add_item(
-            discord.ui.Button(
-                label="Ir para o ticket",
-                url=canal.jump_url
-            )
-        )
-
-        await interaction.followup.send(
-            embed=embed,
-            view=link_view,
-            ephemeral=True, delete_after=60
+        await self._enviar_confirmacao_abertura(
+            interaction,
+            canal,
+            f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
+            "Clique abaixo para encontrá-lo."
         )
 
     async def criar_ticket_middleman_trade(self, interaction):
@@ -4197,26 +4287,11 @@ class TicketView(discord.ui.View):
         view_trade.message = msg
         await self._avisar_middles_no_canal(canal, ticket_kind="trade")
 
-        embed = discord.Embed(
-            description=(
-                f"✅ | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
-                "Clique abaixo para encontrá-lo."
-            ),
-            color=cor_paleta("sucesso")
-        )
-
-        link_view = discord.ui.View()
-        link_view.add_item(
-            discord.ui.Button(
-                label="Ir para o ticket",
-                url=canal.jump_url
-            )
-        )
-
-        await interaction.followup.send(
-            embed=embed,
-            view=link_view,
-            ephemeral=True, delete_after=60
+        await self._enviar_confirmacao_abertura(
+            interaction,
+            canal,
+            f"✅ | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
+            "Clique abaixo para encontrá-lo."
         )
 
     class EscolhaTaxaMiddleView(discord.ui.View):
@@ -4472,6 +4547,22 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
     )
 
 
+@bot.tree.command(name="setlogadmin", description="Define o canal de logs administrativos (transcrições)")
+async def setlogadmin(interaction: discord.Interaction, canal: discord.TextChannel):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=60
+        )
+        return
+
+    set_log_admin_canal(interaction.guild.id, canal.id)
+    await interaction.response.send_message(
+        f"✅ Canal de log administrativo configurado em {canal.mention}.",
+        ephemeral=True, delete_after=60
+    )
+
+
 def _fmt_canal_configurado(guild: discord.Guild, channel_id):
     cid = _id_int(channel_id)
     if cid is None:
@@ -4495,6 +4586,7 @@ async def infocanal(interaction: discord.Interaction):
     painel_id = get_painel_canal_id(guild.id)
     aceite_id = get_aceite_canal_id(guild.id)
     logs_id = get_logs_canal_id(guild.id)
+    logs_admin_id = get_log_admin_canal_id(guild.id)
     categoria_middle_id = get_middle_category_id(guild.id)
 
     embed = discord.Embed(
@@ -4504,6 +4596,7 @@ async def infocanal(interaction: discord.Interaction):
     embed.add_field(name="Painel (/setpainel)", value=_fmt_canal_configurado(guild, painel_id), inline=False)
     embed.add_field(name="Aceite (/setaceite)", value=_fmt_canal_configurado(guild, aceite_id), inline=False)
     embed.add_field(name="Logs (/setlogs)", value=_fmt_canal_configurado(guild, logs_id), inline=False)
+    embed.add_field(name="Logs Admin (/setlogadmin)", value=_fmt_canal_configurado(guild, logs_admin_id), inline=False)
     embed.add_field(name="Categoria Middle (/setcmiddle)", value=_fmt_canal_configurado(guild, categoria_middle_id), inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
