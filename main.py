@@ -1451,7 +1451,7 @@ def criar_embed_painel(guild_id=None):
     taxa_700_pct = float(cfg["acima_700_percentual"]) * 100
 
     embed = discord.Embed(
-        title="🎫 Sistema de Tickets 🎫",
+        title="🔥 Sistema de Tickets 🔄",
         description=(
             "> Use esse sistema para solicitar seu **MIDDLE MAN**.\n\n"
             "**Taxas do Middleman — Vendas de Brainrots**\n\n"
@@ -3561,11 +3561,23 @@ class MiddlemanAcceptTradeView(discord.ui.View):
             if not self.pessoa1 or not self.pessoa2:
                 await interaction.response.defer(ephemeral=True)
                 await self.canal.set_permissions(interaction.user, view_channel=True)
-                await enviar_fluxo(
-                    self.canal,
-                    f"{interaction.user.mention} **aceitou o ticket e aguardará o início completo do atendimento.**",
-                    cor=cor_paleta("sucesso")
+                msg_loading = ticket_loading_msg.pop(self.canal.id, None)
+                if msg_loading:
+                    try:
+                        await msg_loading.delete()
+                    except Exception:
+                        pass
+
+                embed_middle = discord.Embed(
+                    description=(
+                        f"{interaction.user.mention} **aceitou o ticket e irá realizar o intermédio.**\n\n"
+                        "Você será atendido por um dos membros da nossa equipe.\n"
+                        "Caso tenha alguma dúvida sobre o ticket, pergunte ao Middle Man."
+                    ),
+                    color=cor_paleta("sucesso")
                 )
+                embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
+                await self.canal.send(embed=embed_middle)
                 try:
                     await interaction.followup.send(
                         "✅ Ticket assumido com sucesso. Aguarde a escolha das partes para seguir com o fluxo.",
@@ -4851,7 +4863,6 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
-
 
 
 
