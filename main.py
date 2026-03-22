@@ -453,32 +453,100 @@ def _formatar_mencao_usuario(user_id):
 
 
 async def gerar_transcricao_ticket(canal: discord.TextChannel):
-    linhas_txt = []
+    guild_icon = canal.guild.icon.url if canal.guild.icon else ""
     linhas_html = [
         "<!DOCTYPE html>",
-        "<html><head><meta charset='utf-8'><title>Transcrição</title></head><body>",
-        f"<h2>Transcrição do ticket: {html.escape(canal.name)}</h2>",
+        "<html lang='pt-BR'>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        f"<title>Transcrição - {html.escape(canal.name)}</title>",
+        "<style>",
+        "body{margin:0;background:#313338;color:#dbdee1;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;}",
+        ".wrap{max-width:980px;margin:0 auto;padding:18px;}",
+        ".header{display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid #232428;}",
+        ".server-icon{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#1e1f22;}",
+        ".server-title{font-size:38px;font-weight:800;line-height:1.05;color:#f2f3f5;}",
+        ".server-sub{font-size:30px;font-weight:700;color:#c7ccd1;}",
+        ".meta{font-size:28px;color:#b5bac1;margin-top:2px;}",
+        ".msg{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid #2a2c31;}",
+        ".avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#1e1f22;flex:0 0 40px;}",
+        ".content{flex:1;min-width:0;}",
+        ".top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}",
+        ".name{font-weight:700;color:#00a8fc;font-size:17px;}",
+        ".badge{background:#5865f2;color:#fff;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700;}",
+        ".time{color:#949ba4;font-size:12px;}",
+        ".text{margin-top:4px;white-space:pre-wrap;word-break:break-word;line-height:1.35;}",
+        ".emb{margin-top:8px;border-left:4px solid #ff5a5f;background:#2b2d31;border-radius:6px;padding:10px 12px;}",
+        ".emb-title{font-weight:700;color:#fff;margin-bottom:6px;}",
+        ".emb-field{margin-top:6px;}",
+        ".emb-field b{color:#fff;}",
+        ".att{margin-top:8px;}",
+        ".att a{color:#00a8fc;text-decoration:none;}",
+        ".att img{max-width:360px;max-height:260px;border-radius:6px;border:1px solid #232428;display:block;margin-top:6px;}",
+        "</style>",
+        "</head><body>",
+        "<div class='wrap'>",
+        "<div class='header'>",
+        f"<img class='server-icon' src='{html.escape(guild_icon)}' alt='icon'>",
+        "<div>",
+        f"<div class='server-title'>{html.escape(canal.guild.name)}</div>",
+        f"<div class='server-sub'>#{html.escape(canal.name)}</div>",
+        f"<div class='meta'>{html.escape(str(canal.id))}</div>",
+        "</div></div>",
     ]
 
+    qtd_msgs = 0
     async for msg in canal.history(limit=None, oldest_first=True):
-        ts = msg.created_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S")
-        autor = f"{msg.author} ({msg.author.id})"
-        conteudo = msg.content or ""
-        if msg.attachments:
-            anexos = " | ".join(a.url for a in msg.attachments)
-            conteudo = f"{conteudo}\n[ANEXOS] {anexos}".strip()
+        qtd_msgs += 1
+        ts = msg.created_at.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S (BRT)")
+        autor_nome = html.escape(msg.author.display_name)
+        avatar = html.escape(msg.author.display_avatar.url)
+        conteudo = html.escape(msg.content or "").replace("\n", "<br>")
+        badge = "<span class='badge'>BOT</span>" if msg.author.bot else ""
 
-        linhas_txt.append(f"[{ts}] {autor}: {conteudo}")
-
-        conteudo_html = html.escape(conteudo).replace("\n", "<br>")
-        linhas_html.append(
-            f"<p><b>[{html.escape(ts)}] {html.escape(autor)}:</b> {conteudo_html}</p>"
+        linhas_html.extend(
+            [
+                "<div class='msg'>",
+                f"<img class='avatar' src='{avatar}' alt='avatar'>",
+                "<div class='content'>",
+                f"<div class='top'><span class='name'>{autor_nome}</span>{badge}<span class='time'>{html.escape(ts)}</span></div>",
+            ]
         )
 
-    linhas_html.append("</body></html>")
-    txt_bytes = "\n".join(linhas_txt).encode("utf-8", errors="replace")
+        if conteudo:
+            linhas_html.append(f"<div class='text'>{conteudo}</div>")
+
+        for emb in msg.embeds:
+            linhas_html.append("<div class='emb'>")
+            if emb.title:
+                linhas_html.append(f"<div class='emb-title'>{html.escape(str(emb.title))}</div>")
+            if emb.description:
+                emb_desc = html.escape(str(emb.description)).replace("\n", "<br>")
+                linhas_html.append(f"<div class='text'>{emb_desc}</div>")
+            for field in emb.fields:
+                fname = html.escape(str(field.name))
+                fvalue = html.escape(str(field.value)).replace("\n", "<br>")
+                linhas_html.append(f"<div class='emb-field'><b>{fname}</b><br>{fvalue}</div>")
+            if emb.image and emb.image.url:
+                linhas_html.append(f"<div class='att'><img src='{html.escape(emb.image.url)}' alt='embed-image'></div>")
+            linhas_html.append("</div>")
+
+        if msg.attachments:
+            linhas_html.append("<div class='att'>")
+            for a in msg.attachments:
+                url = html.escape(a.url)
+                nome = html.escape(a.filename)
+                linhas_html.append(f"<a href='{url}' target='_blank' rel='noopener'>{nome}</a>")
+                if a.content_type and a.content_type.startswith("image/"):
+                    linhas_html.append(f"<img src='{url}' alt='{nome}'>")
+            linhas_html.append("</div>")
+
+        linhas_html.append("</div></div>")
+
+    linhas_html.append("</div></body></html>")
     html_bytes = "\n".join(linhas_html).encode("utf-8", errors="replace")
-    return txt_bytes, html_bytes, len(linhas_txt)
+    return html_bytes, qtd_msgs
 
 
 async def enviar_log_fechamento_ticket(guild, canal):
@@ -678,8 +746,7 @@ async def enviar_log_fechamento_ticket(guild, canal):
 
         if isinstance(canal_admin_logs, discord.TextChannel):
             try:
-                txt_bytes, html_bytes, qtd_msgs = await gerar_transcricao_ticket(canal)
-                arq_txt = discord.File(io.BytesIO(txt_bytes), filename=f"transcricao-{canal.id}.txt")
+                html_bytes, qtd_msgs = await gerar_transcricao_ticket(canal)
                 arq_html = discord.File(io.BytesIO(html_bytes), filename=f"transcricao-{canal.id}.html")
                 await canal_admin_logs.send(
                     embed=embed_fluxo(
@@ -688,7 +755,7 @@ async def enviar_log_fechamento_ticket(guild, canal):
                         titulo="🧾 Transcrição do Ticket",
                         cor=cor_paleta("info")
                     ),
-                    files=[arq_txt, arq_html]
+                    file=arq_html
                 )
             except discord.Forbidden:
                 logger.warning(
