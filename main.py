@@ -239,6 +239,28 @@ def _party_id(value):
     return _id_int(value)
 
 
+def _slug_nome_canal(texto: str, limite: int = 70) -> str:
+    texto = (texto or "").strip().lower()
+    texto = re.sub(r"\s+", "-", texto)
+    texto = re.sub(r"[^a-z0-9\-]", "", texto)
+    texto = re.sub(r"-{2,}", "-", texto).strip("-")
+    if not texto:
+        texto = "middle"
+    return texto[:limite]
+
+
+def montar_nome_ticket_com_middle(canal_nome: str, middle_nome: str) -> str:
+    m = re.search(r"(\d+)$", canal_nome or "")
+    numero = m.group(1) if m else None
+    slug_middle = _slug_nome_canal(middle_nome, limite=55)
+    if numero:
+        nome = f"ticket-{numero}-{slug_middle}"
+    else:
+        nome_base = _slug_nome_canal(canal_nome or "ticket", limite=35)
+        nome = f"{nome_base}-{slug_middle}"
+    return nome[:100]
+
+
 def carregar_estado_tickets():
     default = {
         "next_ticket_number_by_guild": {},
@@ -2990,6 +3012,25 @@ class MiddlemanAcceptView(discord.ui.View):
             await interaction.response.defer(ephemeral=True)
 
             await self.canal.set_permissions(interaction.user, view_channel=True)
+            try:
+                novo_nome = montar_nome_ticket_com_middle(
+                    self.canal.name,
+                    interaction.user.display_name or interaction.user.name
+                )
+                if novo_nome and novo_nome != self.canal.name:
+                    await self.canal.edit(name=novo_nome, reason=f"Ticket aceito por {interaction.user}")
+            except discord.Forbidden:
+                logger.warning(
+                    "Sem permissao para renomear canal de ticket canal_id=%s guild_id=%s",
+                    self.canal.id,
+                    interaction.guild.id if interaction.guild else "desconhecida"
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao renomear canal de ticket canal_id=%s user_id=%s",
+                    self.canal.id,
+                    interaction.user.id
+                )
 
             # remove mensagem de loading
             msg_loading = ticket_loading_msg.pop(self.canal.id, None)
