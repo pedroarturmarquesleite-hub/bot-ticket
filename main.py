@@ -1471,7 +1471,7 @@ def criar_embed_painel(guild_id=None):
         title="🔥 Sistema de Tickets 🔄",
         description=(
             "> Use esse sistema para solicitar seu **MIDDLE MAN**.\n\n"
-            "**Taxas do Middleman — Vendas de Brainrots**\n\n"
+            "**Taxas do Middleman — Vendas de Itens**\n\n"
             f"- *VALOR MÍNIMO DA **TAXA DO MIDDLE MAN** É R$ {taxa_ate_8:.2f}*\n"
             f"- *R$ {taxa_100:.2f} acima de R$ 100,00*\n"
             f"- *R$ {taxa_400:.2f} acima de R$ 400,00*\n"
@@ -1836,7 +1836,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         await canal.send(embed=embed_qr, file=file)
         await enviar_fluxo(
             canal,
-            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Item* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola),
             cor=cor_paleta("aviso")
         )
@@ -1881,7 +1881,7 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         await canal.send(view=PixCopiaColaView(pix_copia_cola_taxa))
         await enviar_fluxo(
             canal,
-            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Brainrot* e o valor da *Taxa*...",
+            "⏳ Aguarde o Middle Man confirmar que recebeu o valor do *Item* e o valor da *Taxa*...",
             view=ConfirmarPagamentoView(canal, comprador, vendedor, pix_copia_cola_item),
             cor=cor_paleta("aviso")
         )
@@ -2176,7 +2176,7 @@ class ConfirmarPagamentoView(discord.ui.View):
                 estado["etapa"] = "aguardando_confirmacao_entrega"
             await enviar_fluxo(
                 self.canal,
-                f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
+                f"📦 {self.comprador.mention}, confirme que recebeu o Item:",
                 view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
                 cor=cor_paleta("destaque")
             )
@@ -2188,7 +2188,7 @@ class ConfirmarEntregaView(discord.ui.View):
         self.comprador = comprador
         self.vendedor = vendedor
 
-    @discord.ui.button(label="📦 Recebi o Brainrot", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📦 Recebi o Item", style=ESTILO_BOTAO["sucesso"])
     async def confirmar_item(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_item", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -2221,7 +2221,7 @@ class ConfirmarEntregaView(discord.ui.View):
                 estado["etapa"] = "aguardando_envio_pix_vendedor"
             await enviar_fluxo(
                 self.canal,
-                f"{self.vendedor.mention}, envie sua chave Pix para que o Middle Man possa enviar o pix do Brainrot",
+                f"{self.vendedor.mention}, envie sua chave Pix para que o Middle Man possa enviar o pix do Item",
                 view=EnviarPixView(self.canal, self.vendedor),
                 cor=cor_paleta("aviso")
             )
@@ -2462,7 +2462,7 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     taxa = calcular_taxa(valor, canal.guild.id)
 
     descricao = (
-        f"**Brainrot informado por {vendedor.mention}:** `{brainrot_nome}`\n"
+        f"**Item informado por {vendedor.mention}:** `{brainrot_nome}`\n"
         f"**Valor informado por {comprador.mention}:** R$ {valor:.2f}\n"
     )
     descricao += (
@@ -2471,7 +2471,7 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     )
     descricao += (
         f"\n{vendedor.mention}, confirme o valor.\n"
-        f"{comprador.mention}, confirme o brainrot."
+        f"{comprador.mention}, confirme o item."
     )
 
     embed = discord.Embed(
@@ -2498,7 +2498,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
         self.brainrot_confirmado = False
         self.mensagens_confirmacao_ids = []
         self.confirmar_valor.label = f"{self._nome_curto(self.vendedor)} confirma valor"
-        self.confirmar_brainrot.label = f"{self._nome_curto(self.comprador)} confirma brainrot"
+        self.confirmar_brainrot.label = f"{self._nome_curto(self.comprador)} confirma item"
 
     def _nome_curto(self, membro, limite=18):
         nome = (membro.display_name or membro.name).strip()
@@ -2570,7 +2570,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
             self.mensagens_confirmacao_ids.append(msg.id)
             await self._seguir_fluxo(interaction)
 
-    @discord.ui.button(label="Vendedor confirma brainrot", style=ESTILO_BOTAO["primario"])
+    @discord.ui.button(label="Vendedor confirma item", style=ESTILO_BOTAO["primario"])
     async def confirmar_brainrot(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_brainrot", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -2580,7 +2580,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
         async with lock:
             if interaction.user != self.comprador:
                 await interaction.response.send_message(
-                    "Somente o comprador confirma o brainrot.",
+                    "Somente o comprador confirma o item.",
                     ephemeral=True, delete_after=60
                 )
                 return
@@ -2650,7 +2650,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         await enviar_fluxo(
             self.canal,
             f"✅ Valor registrado: R$ {valor:.2f}\n"
-            f"Aguardando o vendedor informar o brainrot.",
+            f"Aguardando o vendedor informar o item.",
             cor=cor_paleta("sucesso")
         )
         if self.origem_view is not None:
@@ -2659,8 +2659,8 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
 
 
-class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
-    brainrot_nome = discord.ui.TextInput(label="Qual brainrot será vendido?", max_length=120)
+class BrainrotNomeModal(discord.ui.Modal, title="Item da negociação"):
+    brainrot_nome = discord.ui.TextInput(label="Qual item será vendido?", max_length=120)
 
     def __init__(self, canal, comprador, vendedor, origem_view=None):
         super().__init__()
@@ -2672,7 +2672,7 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
     async def on_submit(self, interaction):
         nome = self.brainrot_nome.value.strip()
         if not nome:
-            await interaction.response.send_message("Informe um nome de brainrot válido.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Informe um nome de item válido.", ephemeral=True, delete_after=60)
             return
 
         estado = _estado_negociacao(self.canal.id)
@@ -2697,14 +2697,14 @@ class BrainrotNomeModal(discord.ui.Modal, title="Brainrot da negociação"):
 
         await enviar_fluxo(
             self.canal,
-            f"✅ Brainrot registrado: `{nome}`\n"
+            f"✅ Item registrado: `{nome}`\n"
             f"Aguardando o comprador informar o valor.",
             cor=cor_paleta("sucesso")
         )
         if self.origem_view is not None:
             await self.origem_view.marcar_brainrot_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
-        await interaction.response.send_message("Brainrot salvo.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("Item salvo.", ephemeral=True, delete_after=60)
 
 
 class NegociacaoDadosView(discord.ui.View):
@@ -2716,8 +2716,8 @@ class NegociacaoDadosView(discord.ui.View):
         self.message = None
         self._valor_preenchido = False
         self._brainrot_preenchido = False
-        self.informar_valor.label = f"{self._nome_curto(self.comprador)} Informe o valor"
-        self.informar_brainrot.label = f"{self._nome_curto(self.vendedor)} Informe o brainrot"
+        self.informar_valor.label = f"{self._nome_curto(self.comprador)} Informe o valor do item"
+        self.informar_brainrot.label = f"{self._nome_curto(self.vendedor)} Informe o item negociado"
 
     def _nome_curto(self, membro, limite=20):
         nome = (membro.display_name or membro.name).strip()
@@ -2762,11 +2762,11 @@ class NegociacaoDadosView(discord.ui.View):
             ValorModal(self.canal, self.comprador, self.vendedor, origem_view=self)
         )
 
-    @discord.ui.button(label="Informar brainrot", style=ESTILO_BOTAO["primario"])
+    @discord.ui.button(label="Informar item", style=ESTILO_BOTAO["primario"])
     async def informar_brainrot(self, interaction, button):
         if interaction.user != self.vendedor:
             await interaction.response.send_message(
-                "Somente o vendedor pode informar o brainrot.",
+                "Somente o vendedor pode informar o item.",
                 ephemeral=True, delete_after=60
             )
             return
@@ -2981,7 +2981,7 @@ class CompraVendaSetupView(discord.ui.View):
             self.canal,
             (
                 f"{self.comprador.mention} **informe o valor da negociação.**\n"
-                f"{self.vendedor.mention} **informe qual brainrot será negociado.**"
+                f"{self.vendedor.mention} **informe qual item será negociado.**"
             ),
             view=view_dados,
             cor=cor_paleta("aviso")
@@ -3309,7 +3309,7 @@ class TicketView(discord.ui.View):
             canal,
             (
                 f"{prefixo}{comprador.mention} **informe o valor da negociação.**\n"
-                f"{vendedor.mention} **informe qual brainrot será negociado.**"
+                f"{vendedor.mention} **informe qual item será negociado.**"
             ),
             view=view_dados,
             cor=cor_paleta("aviso")
