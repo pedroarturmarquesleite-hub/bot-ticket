@@ -27,6 +27,7 @@ ticket_count_by_guild = {}
 ticket_middleman = {}
 ticket_parties = {}
 ticket_trade_parties = {}
+ticket_creator = {}
 ticket_loading_msg = {}
 ticket_type = {}
 ticket_negociacao = {}
@@ -243,6 +244,7 @@ def carregar_estado_tickets():
         "middleman": {},
         "parties": {},
         "trade_parties": {},
+        "creators": {},
         "types": {}
     }
 
@@ -300,6 +302,13 @@ def carregar_estado_tickets():
                 "pessoa2": pessoa2
             }
 
+    creators = {}
+    for canal_id, user_id in data.get("creators", {}).items():
+        canal_int = _id_int(canal_id)
+        user_int = _id_int(user_id)
+        if canal_int is not None and user_int is not None:
+            creators[canal_int] = user_int
+
     types = {}
     for canal_id, kind in data.get("types", {}).items():
         canal_int = _id_int(canal_id)
@@ -313,6 +322,7 @@ def carregar_estado_tickets():
         "middleman": middleman,
         "parties": parties,
         "trade_parties": trade_parties,
+        "creators": creators,
         "types": types
     }
 
@@ -342,6 +352,7 @@ def salvar_estado_tickets():
             for canal_id, info in ticket_trade_parties.items()
             if isinstance(info, dict)
         },
+        "creators": {str(k): int(v) for k, v in ticket_creator.items()},
         "types": {str(k): v for k, v in ticket_type.items() if v in {"pix", "brainrot", "trade"}}
     }
 
@@ -355,13 +366,14 @@ def salvar_estado_tickets():
 
 
 def carregar_estado_tickets_memoria():
-    global ticket_count_by_guild, ticket_middleman, ticket_parties, ticket_trade_parties, ticket_type, ticket_loading_msg
+    global ticket_count_by_guild, ticket_middleman, ticket_parties, ticket_trade_parties, ticket_creator, ticket_type, ticket_loading_msg
 
     data = carregar_estado_tickets()
     ticket_count_by_guild = data["next_ticket_number_by_guild"]
     ticket_middleman = data["middleman"]
     ticket_parties = data["parties"]
     ticket_trade_parties = data["trade_parties"]
+    ticket_creator = data["creators"]
     ticket_type = data["types"]
     ticket_loading_msg = {}
 
@@ -392,10 +404,20 @@ def salvar_partes_trade(canal_id, pessoa1, pessoa2):
     salvar_estado_tickets()
 
 
+def salvar_criador_ticket(canal_id, criador_id):
+    cid = _id_int(canal_id)
+    uid = _id_int(criador_id)
+    if cid is None or uid is None:
+        return
+    ticket_creator[cid] = uid
+    salvar_estado_tickets()
+
+
 def remover_estado_ticket(canal_id):
     ticket_middleman.pop(canal_id, None)
     ticket_parties.pop(canal_id, None)
     ticket_trade_parties.pop(canal_id, None)
+    ticket_creator.pop(canal_id, None)
     ticket_loading_msg.pop(canal_id, None)
     ticket_type.pop(canal_id, None)
     ticket_negociacao.pop(canal_id, None)
@@ -4249,6 +4271,21 @@ class TicketView(discord.ui.View):
 
         return f"{prefixo}-{total + 1}"
 
+    def contar_tickets_abertos_por_criador(self, guild, user_id):
+        uid = _id_int(user_id)
+        if uid is None:
+            return 0
+        total = 0
+        for canal_id, criador_id in ticket_creator.items():
+            if criador_id != uid:
+                continue
+            if canal_id not in ticket_type:
+                continue
+            canal = guild.get_channel(canal_id)
+            if isinstance(canal, discord.TextChannel):
+                total += 1
+        return total
+
     async def obter_ou_criar_categoria_middle(self, guild):
         category_id = get_middle_category_id(guild.id)
         if category_id is not None:
@@ -4303,6 +4340,19 @@ class TicketView(discord.ui.View):
         view_dados.message = msg_dados
 
     async def criar_ticket_middleman_pix(self, interaction):
+        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            else:
+                await interaction.response.send_message(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            return
+
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
@@ -4319,6 +4369,7 @@ class TicketView(discord.ui.View):
             category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "pix")
+        salvar_criador_ticket(canal.id, interaction.user.id)
         aviso = discord.Embed(
             title="📢 LEIA COM ATENÇÃO",
             description=(
@@ -4372,6 +4423,19 @@ class TicketView(discord.ui.View):
         )
 
     async def criar_ticket_middleman_brainrot(self, interaction):
+        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            else:
+                await interaction.response.send_message(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            return
+
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
@@ -4387,6 +4451,7 @@ class TicketView(discord.ui.View):
             category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "brainrot")
+        salvar_criador_ticket(canal.id, interaction.user.id)
 
         aviso = discord.Embed(
             title="📢 LEIA COM ATENÇÃO",
@@ -4442,6 +4507,19 @@ class TicketView(discord.ui.View):
         )
 
     async def criar_ticket_middleman_trade(self, interaction):
+        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            else:
+                await interaction.response.send_message(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=60
+                )
+            return
+
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
@@ -4457,6 +4535,7 @@ class TicketView(discord.ui.View):
             category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
         salvar_tipo_ticket(canal.id, "trade")
+        salvar_criador_ticket(canal.id, interaction.user.id)
 
         aviso = discord.Embed(
             title="📢 LEIA COM ATENÇÃO",
