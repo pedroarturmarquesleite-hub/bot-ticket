@@ -56,11 +56,11 @@ PANEL_DEFAULT_IMAGE_URL = (
 
 
 TAXA_PADRAO = {
-    "acima_700_percentual": 0.02,
-    "acima_400_fixo": 10.0,
-    "acima_100_fixo": 8.0,
-    "acima_8_fixo": 5.0,
-    "ate_8_fixo": 5.0
+    "acima_700_percentual": 0.015,
+    "acima_400_fixo": 6.95,
+    "acima_200_fixo": 4.45,
+    "acima_100_fixo": 2.85,
+    "ate_100_fixo": 2.00
 }
 VALOR_MAXIMO_OPERACAO = 1_000_000.0
 COOLDOWN_ABRIR_TICKET_SEGUNDOS = 15
@@ -1546,8 +1546,9 @@ carregar_estado_tickets_memoria()
 
 def criar_embed_painel(guild_id=None):
     cfg = carregar_taxa_config(guild_id)
-    taxa_ate_8 = float(cfg["ate_8_fixo"])
+    taxa_ate_100 = float(cfg["ate_100_fixo"])
     taxa_100 = float(cfg["acima_100_fixo"])
+    taxa_200 = float(cfg["acima_200_fixo"])
     taxa_400 = float(cfg["acima_400_fixo"])
     taxa_700_pct = float(cfg["acima_700_percentual"]) * 100
 
@@ -1556,8 +1557,9 @@ def criar_embed_painel(guild_id=None):
         description=(
             "> Use esse sistema para solicitar seu **MIDDLE MAN**.\n\n"
             "**Taxas do Middleman — Vendas de Itens**\n\n"
-            f"- *VALOR MÍNIMO DA **TAXA DO MIDDLE MAN** É R$ {taxa_ate_8:.2f}*\n"
+            f"- *VALOR MÍNIMO DA **TAXA DO MIDDLE MAN** É R$ {taxa_ate_100:.2f}*\n"
             f"- *R$ {taxa_100:.2f} acima de R$ 100,00*\n"
+            f"- *R$ {taxa_200:.2f} acima de R$ 200,00*\n"
             f"- *R$ {taxa_400:.2f} acima de R$ 400,00*\n"
             f"- *{taxa_700_pct:.2f}% acima de R$ 700,00*\n\n"
             "Clique abaixo para abrir um ticket."
@@ -1581,12 +1583,12 @@ def calcular_taxa(valor, guild_id=None):
         return valor * float(cfg["acima_700_percentual"])
     elif valor > 400:
         return float(cfg["acima_400_fixo"])
+    elif valor > 200:
+        return float(cfg["acima_200_fixo"])
     elif valor > 100:
         return float(cfg["acima_100_fixo"])
-    elif valor > 8:
-        return float(cfg["acima_8_fixo"])
     else:
-        return float(cfg["ate_8_fixo"])
+        return float(cfg["ate_100_fixo"])
 
 
 # ---------- BOT ----------
@@ -3764,6 +3766,52 @@ async def infocanal(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@bot.tree.command(name="helpb", description="Mostra a lista de comandos do bot e permissões")
+async def helpb(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Central de Comandos",
+        description="Lista de comandos, função e permissão:",
+        color=cor_paleta("info")
+    )
+    embed.add_field(
+        name="Comandos Gerais",
+        value=(
+            "`/perfil` — Mostra seu perfil financeiro no servidor. *(Qualquer membro)*\n"
+            "`/helpb` — Mostra esta lista de comandos. *(Qualquer membro)*\n"
+            "`/infocanal` — Mostra os canais configurados pelos `/set`. *(Qualquer membro)*"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Comandos de Middle",
+        value=(
+            "`/setpix` — Cadastra sua chave Pix e nome. *(Apenas Middle Man)*\n"
+            "`/fn` — Finaliza o ticket atual e gera logs. *(Apenas MM do ticket)*\n"
+            "`/cobrar` — Gera QR Code Pix no valor informado. *(Middle Man ou Admin)*\n"
+            "`/mmt` — Mostra ranking diário de taxas dos MM. *(Middle Man ou Admin)*"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Comandos de Administração",
+        value=(
+            "`/painel1` — Envia o painel de tickets. *(Apenas Admin)*\n"
+            "`/setpainel` — Define o canal fixo do painel. *(Apenas Admin)*\n"
+            "`/setimgp` — Define a imagem do painel via URL. *(Apenas Admin)*\n"
+            "`/setaceite` — Define o canal de aceite dos MM. *(Apenas Admin)*\n"
+            "`/setrolemiddle` — Define o cargo de Middle Man. *(Apenas Admin)*\n"
+            "`/setcmiddle` — Define a categoria dos tickets. *(Apenas Admin)*\n"
+            "`/setlogs` — Define o canal de logs públicos do bot. *(Apenas Admin)*\n"
+            "`/setlogadmin` — Define o canal de logs administrativos/transcrição. *(Apenas Admin)*\n"
+            "`/settaxa` — Configura as faixas da taxa do middle. *(Apenas Admin)*\n"
+            "`/setnvl` — Configura cargos por valor gasto acumulado. *(Apenas Admin)*"
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Permissões válidas por servidor.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(name="fn", description="Finaliza o ticket atual e gera os logs")
 async def fn(interaction: discord.Interaction):
     if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
@@ -3816,9 +3864,9 @@ async def fn(interaction: discord.Interaction):
     faixa=[
         app_commands.Choice(name="Acima de R$700 (percentual)", value="acima_700_percentual"),
         app_commands.Choice(name="Acima de R$400 (fixo)", value="acima_400_fixo"),
+        app_commands.Choice(name="Acima de R$200 (fixo)", value="acima_200_fixo"),
         app_commands.Choice(name="Acima de R$100 (fixo)", value="acima_100_fixo"),
-        app_commands.Choice(name="Acima de R$8 (fixo)", value="acima_8_fixo"),
-        app_commands.Choice(name="Até R$8 (fixo)", value="ate_8_fixo"),
+        app_commands.Choice(name="Até R$100 (fixo/mínimo)", value="ate_100_fixo"),
     ]
 )
 async def settaxa(
