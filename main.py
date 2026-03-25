@@ -26,7 +26,6 @@ from zoneinfo import ZoneInfo
 ticket_count_by_guild = {}
 ticket_middleman = {}
 ticket_parties = {}
-ticket_trade_parties = {}
 ticket_creator = {}
 ticket_loading_msg = {}
 ticket_type = {}
@@ -243,7 +242,6 @@ def carregar_estado_tickets():
         "next_ticket_number_by_guild": {},
         "middleman": {},
         "parties": {},
-        "trade_parties": {},
         "creators": {},
         "types": {}
     }
@@ -289,19 +287,6 @@ def carregar_estado_tickets():
                 "vendedor": vendedor
             }
 
-    trade_parties = {}
-    for canal_id, info in data.get("trade_parties", {}).items():
-        canal_int = _id_int(canal_id)
-        if canal_int is None or not isinstance(info, dict):
-            continue
-        pessoa1 = _id_int(info.get("pessoa1"))
-        pessoa2 = _id_int(info.get("pessoa2"))
-        if pessoa1 is not None and pessoa2 is not None:
-            trade_parties[canal_int] = {
-                "pessoa1": pessoa1,
-                "pessoa2": pessoa2
-            }
-
     creators = {}
     for canal_id, user_id in data.get("creators", {}).items():
         canal_int = _id_int(canal_id)
@@ -314,14 +299,13 @@ def carregar_estado_tickets():
         canal_int = _id_int(canal_id)
         if canal_int is None:
             continue
-        if kind in {"pix", "brainrot", "trade"}:
+        if kind in {"pix"}:
             types[canal_int] = kind
 
     return {
         "next_ticket_number_by_guild": next_numbers,
         "middleman": middleman,
         "parties": parties,
-        "trade_parties": trade_parties,
         "creators": creators,
         "types": types
     }
@@ -344,16 +328,8 @@ def salvar_estado_tickets():
             for canal_id, info in ticket_parties.items()
             if isinstance(info, dict)
         },
-        "trade_parties": {
-            str(canal_id): {
-                "pessoa1": _party_id(info.get("pessoa1")),
-                "pessoa2": _party_id(info.get("pessoa2"))
-            }
-            for canal_id, info in ticket_trade_parties.items()
-            if isinstance(info, dict)
-        },
         "creators": {str(k): int(v) for k, v in ticket_creator.items()},
-        "types": {str(k): v for k, v in ticket_type.items() if v in {"pix", "brainrot", "trade"}}
+        "types": {str(k): v for k, v in ticket_type.items() if v in {"pix"}}
     }
 
     temp_file = f"{TICKET_STATE_FILE}.tmp"
@@ -366,13 +342,12 @@ def salvar_estado_tickets():
 
 
 def carregar_estado_tickets_memoria():
-    global ticket_count_by_guild, ticket_middleman, ticket_parties, ticket_trade_parties, ticket_creator, ticket_type, ticket_loading_msg
+    global ticket_count_by_guild, ticket_middleman, ticket_parties, ticket_creator, ticket_type, ticket_loading_msg
 
     data = carregar_estado_tickets()
     ticket_count_by_guild = data["next_ticket_number_by_guild"]
     ticket_middleman = data["middleman"]
     ticket_parties = data["parties"]
-    ticket_trade_parties = data["trade_parties"]
     ticket_creator = data["creators"]
     ticket_type = data["types"]
     ticket_loading_msg = {}
@@ -396,14 +371,6 @@ def salvar_partes_ticket(canal_id, comprador, vendedor):
     salvar_estado_tickets()
 
 
-def salvar_partes_trade(canal_id, pessoa1, pessoa2):
-    ticket_trade_parties[canal_id] = {
-        "pessoa1": pessoa1,
-        "pessoa2": pessoa2
-    }
-    salvar_estado_tickets()
-
-
 def salvar_criador_ticket(canal_id, criador_id):
     cid = _id_int(canal_id)
     uid = _id_int(criador_id)
@@ -416,7 +383,6 @@ def salvar_criador_ticket(canal_id, criador_id):
 def remover_estado_ticket(canal_id):
     ticket_middleman.pop(canal_id, None)
     ticket_parties.pop(canal_id, None)
-    ticket_trade_parties.pop(canal_id, None)
     ticket_creator.pop(canal_id, None)
     ticket_loading_msg.pop(canal_id, None)
     ticket_type.pop(canal_id, None)
@@ -451,20 +417,6 @@ def obter_partes_ticket(canal):
         "comprador": comprador,
         "vendedor": vendedor
     }
-
-
-def obter_partes_trade(canal):
-    parties = ticket_trade_parties.get(canal.id)
-    if not isinstance(parties, dict):
-        return None
-
-    pessoa1 = resolver_membro(canal.guild, parties.get("pessoa1"))
-    pessoa2 = resolver_membro(canal.guild, parties.get("pessoa2"))
-
-    if pessoa1 is None or pessoa2 is None:
-        return None
-
-    return {"pessoa1": pessoa1, "pessoa2": pessoa2}
 
 
 def _formatar_mencao_usuario(user_id):
@@ -579,11 +531,10 @@ async def enviar_log_fechamento_ticket(guild, canal):
 
     middle_id = ticket_middleman.get(canal_id)
     partes = ticket_parties.get(canal_id, {})
-    partes_trade = ticket_trade_parties.get(canal_id, {})
     dados_negociacao = ticket_negociacao.get(canal_id, {}) if isinstance(ticket_negociacao.get(canal_id), dict) else {}
     tipo = ticket_type.get(canal_id, "desconhecido")
 
-    valor_brainrot_txt = "Não informado"
+    valor_item_txt = "Não informado"
     valor_taxa_txt = "Não informado"
     valor_total_txt = "Não informado"
     valor_negociado_num = None
@@ -598,13 +549,9 @@ async def enviar_log_fechamento_ticket(guild, canal):
 
         if valor_negociado is not None:
             valor_negociado_num = valor_negociado
-            valor_brainrot_txt = f"R$ {valor_negociado:.2f}"
-            if tipo == "brainrot":
-                valor_taxa_txt = "R$ 0.00 (taxa em item)"
-                valor_taxa_num = 0.0
-            else:
-                valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id))
-                valor_taxa_txt = f"R$ {valor_taxa_num:.2f}"
+            valor_item_txt = f"R$ {valor_negociado:.2f}"
+            valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id))
+            valor_taxa_txt = f"R$ {valor_taxa_num:.2f}"
 
     if middle_id is not None and valor_taxa_num is not None and valor_taxa_num > 0:
         try:
@@ -630,13 +577,6 @@ async def enviar_log_fechamento_ticket(guild, canal):
             ids_participantes.add(comprador_id)
         if vendedor_id is not None:
             ids_participantes.add(vendedor_id)
-    if isinstance(partes_trade, dict):
-        pessoa1_id = _party_id(partes_trade.get("pessoa1"))
-        pessoa2_id = _party_id(partes_trade.get("pessoa2"))
-        if pessoa1_id is not None:
-            ids_participantes.add(pessoa1_id)
-        if pessoa2_id is not None:
-            ids_participantes.add(pessoa2_id)
 
     participantes_txt = "Nenhum participante registrado."
     if ids_participantes:
@@ -669,7 +609,7 @@ async def enviar_log_fechamento_ticket(guild, canal):
         f"Tipo: {tipo}\n"
         f"Middle: {_formatar_mencao_usuario(middle_id)}\n"
         f"Valor total (valor + taxa): {valor_total_txt}\n"
-        f"Valor do Brainrot negociado: {valor_brainrot_txt}\n"
+        f"Valor do item negociado: {valor_item_txt}\n"
         f"Valor da taxa: {valor_taxa_txt}\n"
         f"Participantes:\n{participantes_txt}"
     )
@@ -700,12 +640,6 @@ async def enviar_log_fechamento_ticket(guild, canal):
 
     tipo_base = "Troca venda/compra"
     cor = cor_paleta("primario")
-    if tipo == "brainrot":
-        tipo_base = "Troca de Brainrot"
-        cor = cor_paleta("aviso")
-    elif tipo == "trade":
-        tipo_base = "Trade"
-        cor = cor_paleta("destaque")
 
     participantes_resumo = []
     for uid in sorted(ids_participantes):
@@ -1723,8 +1657,7 @@ class botd(discord.Client):
             )
             return
 
-        ticket_kind = ticket_type.get(canal.id, "pix")
-        tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
+        tipo_middle = "Taxa Pix"
         role_middle = get_middle_role(canal.guild)
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
@@ -1735,57 +1668,6 @@ class botd(discord.Client):
                     cor=cor_paleta("aviso")
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
-            )
-        except discord.Forbidden:
-            await enviar_fluxo(
-                canal,
-                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
-                "Verifique se o bot tem permissão de envio de mensagens.",
-                cor=cor_paleta("erro")
-            )
-
-    async def _avisar_aceite_trade(self, canal, pessoa1, pessoa2):
-        aceite_canal_id = get_aceite_canal_id(canal.guild.id)
-        if not aceite_canal_id:
-            await enviar_fluxo(
-                canal,
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
-                cor=cor_paleta("erro")
-            )
-            return
-
-        try:
-            channel_id = int(aceite_canal_id)
-        except (TypeError, ValueError):
-            channel_id = None
-
-        aceite_channel = None
-        if channel_id is not None:
-            aceite_channel = canal.guild.get_channel(channel_id)
-            if aceite_channel is None:
-                try:
-                    aceite_channel = await canal.guild.fetch_channel(channel_id)
-                except (discord.HTTPException, discord.NotFound, discord.Forbidden):
-                    aceite_channel = None
-
-        if not isinstance(aceite_channel, discord.TextChannel):
-            await enviar_fluxo(
-                canal,
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
-                cor=cor_paleta("erro")
-            )
-            return
-
-        role_middle = get_middle_role(canal.guild)
-        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
-        try:
-            await aceite_channel.send(
-                content=mencao_middle,
-                embed=embed_fluxo(
-                    f"Ticket aguardando MM (Trade): {canal.mention}",
-                    cor=cor_paleta("aviso")
-                ),
-                view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
             )
         except discord.Forbidden:
             await enviar_fluxo(
@@ -1806,12 +1688,12 @@ class botd(discord.Client):
             cor=cor_paleta("primario")
         )
 
-        if kind in {"pix", "brainrot"}:
+        if kind == "pix":
             partes = obter_partes_ticket(canal)
             if not partes:
                 criador = self._detectar_criador_ticket(canal)
                 if criador:
-                    view_setup = TradeSetupView(canal, criador)
+                    view_setup = CompraVendaSetupView(canal, criador)
                     msg = await enviar_fluxo(
                         canal,
                         "🔄 Bot reiniciado. Se necessário, refaça a definição de comprador e vendedor:",
@@ -1831,7 +1713,7 @@ class botd(discord.Client):
                     estado = _estado_negociacao(canal.id)
                 if estado:
                     estado["etapa"] = "aguardando_middle_pix"
-                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind=kind)
+                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind="pix")
                 return
 
             middle = canal.guild.get_member(int(middle_id))
@@ -1843,7 +1725,7 @@ class botd(discord.Client):
                     estado = _estado_negociacao(canal.id)
                 elif estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"}:
                     estado["etapa"] = "aguardando_middle_pix"
-                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind=kind)
+                await self._avisar_middles_no_canal(canal, comprador, vendedor, ticket_kind="pix")
                 return
 
             if estado is not None and estado.get("etapa") == "finalizado":
@@ -1853,62 +1735,6 @@ class botd(discord.Client):
 
             await canal.set_permissions(middle, view_channel=True)
             await self._iniciar_fluxo_pix_brainrot(canal, comprador, vendedor, reiniciado=True)
-            return
-
-        if kind == "trade":
-            partes_trade = obter_partes_trade(canal)
-            if not partes_trade:
-                criador = self._detectar_criador_ticket(canal)
-                if criador:
-                    view_trade = TradeSetupTradeView(canal, criador)
-                    msg = await enviar_fluxo(
-                        canal,
-                        "🔄 Bot reiniciado. Se necessário, refaça a seleção da pessoa da troca:",
-                        view=view_trade,
-                        cor=cor_paleta("primario")
-                    )
-                    view_trade.message = msg
-                return
-
-            pessoa1 = partes_trade["pessoa1"]
-            pessoa2 = partes_trade["pessoa2"]
-
-            if middle_id is None:
-                embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 Bot reiniciado. Um middle irá aceitar o ticket em breve...",
-                    color=cor_paleta("aviso")
-                )
-                msg_loading = await canal.send(embed=embed)
-                ticket_loading_msg[canal.id] = msg_loading
-                await self._avisar_aceite_trade(canal, pessoa1, pessoa2)
-                return
-
-            middle = canal.guild.get_member(int(middle_id))
-            if middle is None:
-                ticket_middleman.pop(canal.id, None)
-                salvar_estado_tickets()
-                embed = discord.Embed(
-                    title="⏳ Aguardando Middle Man",
-                    description="🔄 O middle anterior não está disponível. Aguardando novo aceite...",
-                    color=cor_paleta("aviso")
-                )
-                msg_loading = await canal.send(embed=embed)
-                ticket_loading_msg[canal.id] = msg_loading
-                await self._avisar_aceite_trade(canal, pessoa1, pessoa2)
-                return
-
-            await canal.set_permissions(middle, view_channel=True)
-            iniciar_negociacao_trade(canal.id, pessoa1, pessoa2)
-            estado = _estado_negociacao(canal.id)
-            if estado and not estado.get("trade_etapa"):
-                estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
-            await enviar_fluxo(
-                canal,
-                "🔄 Bot reiniciado. Continue escolhendo a taxa da trade:",
-                view=TradeTaxaEscolhaView(canal, pessoa1, pessoa2, middle.id),
-                cor=cor_paleta("aviso")
-            )
             return
 
     async def on_ready(self):
@@ -2061,60 +1887,6 @@ async def enviar_qr_fluxo_pix(canal, modo, dados):
         )
         return True, None
 
-    if modo == "brainrot_item":
-        valor = float(dados["valor"])
-        comprador = dados["comprador"]
-        vendedor = dados["vendedor"]
-
-        qr = gerar_qrcode_pix(pix_key, valor)
-        pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
-        file = discord.File(fp=qr, filename="pix_item_brainrot.png")
-        embed_qr = discord.Embed(
-            title="💰 Pagamento do item (após taxa em Brainrot)",
-            description=(
-                f"Titular: {pix_nome}\n"
-                f"Código Pix: `{pix_copia_cola}`\n"
-                f"Valor confirmado: R$ {valor:.2f}"
-            ),
-            color=cor_paleta("sucesso")
-        )
-        embed_qr.set_image(url="attachment://pix_item_brainrot.png")
-        await canal.send(embed=embed_qr, file=file)
-        await enviar_fluxo(
-            canal,
-            "⏳ Aguardando pagamento do comprador...",
-            view=ConfirmarPagamentoBrainrotPixView(canal, comprador, vendedor, pix_copia_cola),
-            cor=cor_paleta("aviso")
-        )
-        return True, None
-
-    if modo == "trade_pix":
-        valor = float(dados["valor"])
-        pessoa1 = dados["pessoa1"]
-        pessoa2 = dados["pessoa2"]
-
-        qr = gerar_qrcode_pix(pix_key, valor)
-        pix_copia_cola = gerar_payload_pix(pix_key, valor=f"{valor:.2f}")
-        file = discord.File(fp=qr, filename="trade_pix.png")
-        embed = discord.Embed(
-            title="Cobrança Pix da Trade",
-            description=(
-                f"Titular: {pix_nome}\n"
-                f"Código Pix: `{pix_copia_cola}`\n"
-                f"Valor: R$ {valor:.2f}"
-            ),
-            color=cor_paleta("sucesso")
-        )
-        embed.set_image(url="attachment://trade_pix.png")
-        await canal.send(embed=embed, file=file)
-        await enviar_fluxo(
-            canal,
-            "Aguardando confirmação de pagamento...",
-            view=ConfirmarPagamentoTradePixView(canal, pessoa1, pessoa2, middle_id, pix_copia_cola),
-            cor=cor_paleta("aviso")
-        )
-        return True, None
-
     return False, "❌ Fluxo de reenvio de QR não reconhecido."
 
 
@@ -2148,22 +1920,13 @@ class ReenviarQrPixView(discord.ui.View):
                 delete_after=60
             )
             return
-        if self.modo == "brainrot_item" and etapa != "aguardando_pagamento_brainrot_pix":
+        if self.modo not in {"taxa_comprador", "taxa_vendedor"}:
             await interaction.response.send_message(
-                "Esta etapa já foi processada.",
+                "Modo de reenvio inválido.",
                 ephemeral=True,
                 delete_after=60
             )
             return
-        if self.modo == "trade_pix":
-            trade_etapa = estado.get("trade_etapa") if estado else None
-            if trade_etapa != "aguardando_valor_pix_trade":
-                await interaction.response.send_message(
-                    "Esta etapa já foi processada.",
-                    ephemeral=True,
-                    delete_after=60
-                )
-                return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -2181,9 +1944,6 @@ class ReenviarQrPixView(discord.ui.View):
             await interaction.message.edit(view=None)
         except Exception:
             pass
-
-        if self.modo == "trade_pix" and estado:
-            estado["trade_etapa"] = "aguardando_pagamento_pix_trade"
 
         await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
 
@@ -2421,154 +2181,6 @@ class ConfirmarPagamentoView(discord.ui.View):
                 cor=cor_paleta("destaque")
             )
 
-class ConfirmarTaxaBrainrotView(discord.ui.View):
-    def __init__(self, canal, valor, comprador, vendedor):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.valor = valor
-        self.comprador = comprador
-        self.vendedor = vendedor
-
-    @discord.ui.button(label="Recebi a taxa em Brainrot", style=ESTILO_BOTAO["sucesso"])
-    async def confirmar_taxa_brainrot(self, interaction, button):
-        if await em_cooldown(interaction, "confirmar_taxa_brainrot", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-
-            middle_id = ticket_middleman.get(self.canal.id)
-
-            if interaction.user.id != middle_id:
-                await interaction.response.send_message(
-                    "Apenas o Middle pode confirmar o recebimento da taxa.",
-                    ephemeral=True, delete_after=60
-                )
-                return
-
-            estado = _estado_negociacao(self.canal.id)
-            if estado and estado.get("etapa") != "aguardando_taxa_brainrot_middle":
-                await interaction.response.send_message(
-                    "Esta etapa já foi processada.",
-                    ephemeral=True,
-                    delete_after=60
-                )
-                return
-            if estado:
-                estado["etapa"] = "taxa_brainrot_processando"
-
-            await interaction.response.defer()
-            try:
-                await interaction.message.delete()
-            except discord.NotFound:
-                pass
-
-            ok, erro = await enviar_qr_fluxo_pix(
-                self.canal,
-                "brainrot_item",
-                {
-                    "middle_id": middle_id,
-                    "valor": self.valor,
-                    "comprador": self.comprador,
-                    "vendedor": self.vendedor
-                }
-            )
-            if not ok:
-                if estado:
-                    estado["etapa"] = "aguardando_pagamento_brainrot_pix"
-                await enviar_fluxo(
-                    self.canal,
-                    f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
-                    view=ReenviarQrPixView(
-                        self.canal,
-                        "brainrot_item",
-                        {
-                            "valor": self.valor,
-                            "comprador": self.comprador,
-                            "vendedor": self.vendedor
-                        }
-                    ),
-                    cor=cor_paleta("erro")
-                )
-                return
-            if estado:
-                estado["etapa"] = "aguardando_pagamento_brainrot_pix"
-
-class ConfirmarPagamentoBrainrotPixView(discord.ui.View):
-    def __init__(self, canal, comprador, vendedor, pix_copia_cola=None):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.comprador = comprador
-        self.vendedor = vendedor
-        self.pix_copia_cola = pix_copia_cola
-        if not self.pix_copia_cola:
-            self.remove_item(self.copiar_codigo)
-
-    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
-    async def copiar_codigo(self, interaction, button):
-        await interaction.response.send_message(
-            f"`{self.pix_copia_cola}`",
-            ephemeral=True
-        )
-
-    @discord.ui.button(label="Confirmar Taxa ( MM )", style=ESTILO_BOTAO["aviso"], row=0)
-    async def confirmar_pagamento(self, interaction, button):
-        try:
-            if await em_cooldown(interaction, "confirmar_pagamento_brainrot_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-                return
-            lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-            if lock is None:
-                return
-            async with lock:
-
-                middle_id = ticket_middleman.get(self.canal.id)
-
-                if interaction.user.id != middle_id:
-                    await interaction.response.send_message(
-                        "Apenas o Middle pode confirmar o pagamento.",
-                        ephemeral=True, delete_after=60
-                    )
-                    return
-
-                estado = _estado_negociacao(self.canal.id)
-                if estado and estado.get("etapa") != "aguardando_pagamento_brainrot_pix":
-                    await interaction.response.send_message(
-                        "Esta etapa já foi processada.",
-                        ephemeral=True,
-                        delete_after=60
-                    )
-                    return
-                if estado:
-                    estado["etapa"] = "pagamento_brainrot_pix_processando"
-
-                await interaction.response.defer()
-                try:
-                    await interaction.message.delete()
-                except discord.NotFound:
-                    pass
-
-                if estado:
-                    estado["etapa"] = "aguardando_confirmacao_entrega"
-                await enviar_fluxo(
-                    self.canal,
-                    f"📦 {self.comprador.mention}, confirme que recebeu o Brainrot:",
-                    view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
-                    cor=cor_paleta("destaque")
-                )
-        except Exception:
-            logger.exception("Erro em ConfirmarPagamentoBrainrotPixView canal_id=%s", self.canal.id)
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Ocorreu um erro ao confirmar pagamento em PIX. Tente novamente.",
-                    ephemeral=True, delete_after=60
-                )
-            else:
-                await interaction.followup.send(
-                    "Ocorreu um erro ao confirmar pagamento em PIX. Tente novamente.",
-                    ephemeral=True
-                )
-
 class ConfirmarEntregaView(discord.ui.View):
     def __init__(self, canal, comprador, vendedor):
         super().__init__(timeout=None)
@@ -2709,7 +2321,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
             await interaction.message.delete()
 
             embed_finalizado = discord.Embed(
-                title="Trade Finalizada",
+                title="Intermediação Finalizada",
                 description=(
                     "✅ Intermediação finalizada com sucesso!\n\n"
                     "Obrigado por utilizar nosso sistema de middle man."
@@ -2820,22 +2432,9 @@ def deve_enviar_log_fechamento(canal_id):
     tipo = ticket_type.get(canal_id)
     estado = _estado_negociacao(canal_id) or {}
 
-    if tipo in {"pix", "brainrot"}:
+    if tipo == "pix":
         return estado.get("etapa") == "finalizado"
-    if tipo == "trade":
-        return estado.get("trade_etapa") == "finalizado_trade"
     return False
-
-
-def iniciar_negociacao_trade(canal_id, pessoa1=None, pessoa2=None):
-    estado = _estado_negociacao(canal_id) or {}
-    if pessoa1 is not None:
-        estado["trade_pessoa1_id"] = pessoa1.id if hasattr(pessoa1, "id") else _id_int(pessoa1)
-    if pessoa2 is not None:
-        estado["trade_pessoa2_id"] = pessoa2.id if hasattr(pessoa2, "id") else _id_int(pessoa2)
-    if not estado.get("trade_etapa"):
-        estado["trade_etapa"] = "aguardando_parceiro_trade"
-    ticket_negociacao[canal_id] = estado
 
 
 async def tentar_publicar_confirmacao_negociacao(canal):
@@ -2860,18 +2459,16 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     vendedor = parties["vendedor"]
     valor = float(estado["valor"])
     brainrot_nome = estado["brainrot_nome"]
-    ticket_kind = ticket_type.get(canal.id, "pix")
-    taxa = 0 if ticket_kind == "brainrot" else calcular_taxa(valor, canal.guild.id)
+    taxa = calcular_taxa(valor, canal.guild.id)
 
     descricao = (
         f"**Brainrot informado por {vendedor.mention}:** `{brainrot_nome}`\n"
         f"**Valor informado por {comprador.mention}:** R$ {valor:.2f}\n"
     )
-    if ticket_kind != "brainrot":
-        descricao += (
-            f"**Taxa estimada:** R$ {taxa:.2f}\n"
-            f"**Total estimado:** R$ {valor + taxa:.2f}\n"
-        )
+    descricao += (
+        f"**Taxa estimada:** R$ {taxa:.2f}\n"
+        f"**Total estimado:** R$ {valor + taxa:.2f}\n"
+    )
     descricao += (
         f"\n{vendedor.mention}, confirme o valor.\n"
         f"{comprador.mention}, confirme o brainrot."
@@ -2934,31 +2531,14 @@ class ConfirmarNegociacaoView(discord.ui.View):
         except Exception:
             pass
 
-        ticket_kind = ticket_type.get(self.canal.id, "pix")
-        if ticket_kind == "brainrot":
-            if estado:
-                estado["etapa"] = "aguardando_taxa_brainrot_middle"
-            await enviar_fluxo(
-                self.canal,
-                "Enviem o servidor/brainrot da taxa para o Middle.\n"
-                "Quando receber, o Middle confirma abaixo:",
-                view=ConfirmarTaxaBrainrotView(
-                    self.canal,
-                    self.valor,
-                    self.comprador,
-                    self.vendedor
-                ),
-                cor=cor_paleta("aviso")
-            )
-        else:
-            if estado:
-                estado["etapa"] = "aguardando_escolha_taxa"
-            await enviar_fluxo(
-                self.canal,
-                f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
-                view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id),
-                cor=cor_paleta("aviso")
-            )
+        if estado:
+            estado["etapa"] = "aguardando_escolha_taxa"
+        await enviar_fluxo(
+            self.canal,
+            f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
+            view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id),
+            cor=cor_paleta("aviso")
+        )
         self.stop()
 
     @discord.ui.button(label="Comprador confirma valor", style=ESTILO_BOTAO["sucesso"])
@@ -3290,580 +2870,33 @@ class MiddlemanAcceptView(discord.ui.View):
             except Exception:
                 pass
 
-            ticket_kind = ticket_type.get(self.canal.id, "pix")
-            if ticket_kind in {"pix", "brainrot"}:
-                partes = obter_partes_ticket(self.canal)
-                if not partes:
-                    estado = _estado_negociacao(self.canal.id)
-                    if estado:
-                        estado["etapa"] = "aguardando_middle_pix"
-                    return
+            partes = obter_partes_ticket(self.canal)
+            if not partes:
+                estado = _estado_negociacao(self.canal.id)
+                if estado:
+                    estado["etapa"] = "aguardando_middle_pix"
+                return
 
-                comprador = partes["comprador"]
-                vendedor = partes["vendedor"]
+            comprador = partes["comprador"]
+            vendedor = partes["vendedor"]
+            estado = _estado_negociacao(self.canal.id)
+
+            if not estado:
+                iniciar_negociacao_ticket(self.canal.id, comprador, vendedor)
                 estado = _estado_negociacao(self.canal.id)
 
-                if not estado:
-                    iniciar_negociacao_ticket(self.canal.id, comprador, vendedor)
-                    estado = _estado_negociacao(self.canal.id)
-
-                if estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"} and estado.get("etapa") != "finalizado":
-                    return
-                if estado.get("confirm_msg_id"):
-                    return
-
-                if estado and estado.get("etapa") == "coleta_dados" and estado.get("valor") is not None:
-                    return
-
-                estado["etapa"] = "coleta_dados"
-                await TicketView()._iniciar_fluxo_pix_brainrot(self.canal, comprador, vendedor)
-
-# ---------- CONFIGURAÇÃO TRADE ----------
-class TradeFinalConfirmView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.p1_ok = False
-        self.p2_ok = False
-        self.confirmar_p1.label = f"Confirmar: {self._nome_curto(self.pessoa1)}"
-        self.confirmar_p2.label = f"Confirmar: {self._nome_curto(self.pessoa2)}"
-
-    def _nome_curto(self, membro, limite=20):
-        nome = (membro.display_name or membro.name).strip()
-        if len(nome) <= limite:
-            return nome
-        return nome[:limite - 3] + "..."
-
-    async def _verificar_finalizacao(self, interaction):
-        if self.p1_ok and self.p2_ok:
-            estado = _estado_negociacao(self.canal.id)
-            if estado and estado.get("trade_etapa") not in {"aguardando_confirmacoes_trade", "finalizando_trade"}:
+            if estado.get("etapa") not in {"aguardando_middle_pix", "coleta_dados"} and estado.get("etapa") != "finalizado":
                 return
-            if estado:
-                estado["trade_etapa"] = "finalizando_trade"
-            try:
-                await interaction.message.edit(view=None)
-            except Exception:
-                pass
-            embed_finalizado = discord.Embed(
-                title="Trade Finalizada",
-                description=(
-                    "✅ Trade finalizada com sucesso!\n\n"
-                    "Obrigado por utilizar nosso sistema de middle man."
-                ),
-                color=cor_paleta("sucesso")
-            )
-            await self.canal.send(embed=embed_finalizado, view=FinalizarTicketView(self.canal))
-            if estado:
-                estado["trade_etapa"] = "finalizado_trade"
-
-    @discord.ui.button(label="Pessoa 1 confirmou", style=ESTILO_BOTAO["primario"])
-    async def confirmar_p1(self, interaction, button):
-        if await em_cooldown(interaction, "trade_confirmar_p1", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-            if interaction.user != self.pessoa1:
-                await interaction.response.send_message("Apenas a pessoa 1 pode clicar aqui.", ephemeral=True, delete_after=60)
-                return
-            self.p1_ok = True
-            await interaction.response.send_message("Confirmação recebida.", ephemeral=True, delete_after=60)
-            await self._verificar_finalizacao(interaction)
-
-    @discord.ui.button(label="Pessoa 2 confirmou", style=ESTILO_BOTAO["sucesso"])
-    async def confirmar_p2(self, interaction, button):
-        if await em_cooldown(interaction, "trade_confirmar_p2", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-            if interaction.user != self.pessoa2:
-                await interaction.response.send_message("Apenas a pessoa 2 pode clicar aqui.", ephemeral=True, delete_after=60)
-                return
-            self.p2_ok = True
-            await interaction.response.send_message("Confirmação recebida.", ephemeral=True, delete_after=60)
-            await self._verificar_finalizacao(interaction)
-
-
-class ConfirmarPagamentoTradePixView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2, middle_id, pix_copia_cola=None):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.middle_id = middle_id
-        self.pix_copia_cola = pix_copia_cola
-        if not self.pix_copia_cola:
-            self.remove_item(self.copiar_codigo)
-
-    @discord.ui.button(label="📋 Copiar código Pix", style=ESTILO_BOTAO["sucesso"], row=0)
-    async def copiar_codigo(self, interaction, button):
-        await interaction.response.send_message(
-            f"`{self.pix_copia_cola}`",
-            ephemeral=True
-        )
-
-    @discord.ui.button(label="Confirmar Pagamento ( MM )", style=ESTILO_BOTAO["aviso"], row=0)
-    async def confirmar_pagamento(self, interaction, button):
-        if await em_cooldown(interaction, "trade_confirmar_pagamento_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-            if interaction.user.id != self.middle_id:
-                await interaction.response.send_message("Apenas o Middle pode confirmar o pagamento.", ephemeral=True, delete_after=60)
-                return
-            estado = _estado_negociacao(self.canal.id)
-            if estado and estado.get("trade_etapa") != "aguardando_pagamento_pix_trade":
-                await interaction.response.send_message(
-                    "Esta etapa já foi processada.",
-                    ephemeral=True,
-                    delete_after=60
-                )
-                return
-            if estado:
-                estado["trade_etapa"] = "processando_pagamento_pix_trade"
-            await interaction.response.defer()
-            try:
-                await interaction.message.delete()
-            except discord.NotFound:
-                pass
-            if estado:
-                estado["trade_etapa"] = "aguardando_confirmacoes_trade"
-            await enviar_fluxo(
-                self.canal,
-                f"{self.pessoa1.mention} e {self.pessoa2.mention}, confirmem se a troca foi feita:",
-                view=TradeFinalConfirmView(self.canal, self.pessoa1, self.pessoa2),
-                cor=cor_paleta("destaque")
-            )
-
-
-class TradePixValorModal(discord.ui.Modal, title="Valor do PIX da Trade"):
-    valor = discord.ui.TextInput(label="Digite o valor do Pix")
-
-    def __init__(self, canal, pessoa1, pessoa2, middle_id):
-        super().__init__()
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.middle_id = middle_id
-
-    async def on_submit(self, interaction):
-        try:
-            valor = float(self.valor.value.replace(",", "."))
-        except ValueError:
-            await interaction.response.send_message("Valor inválido.", ephemeral=True, delete_after=60)
-            return
-        if valor <= 0:
-            await interaction.response.send_message("Informe um valor maior que zero.", ephemeral=True, delete_after=60)
-            return
-
-        estado = _estado_negociacao(self.canal.id)
-        if estado and estado.get("trade_etapa") != "aguardando_valor_pix_trade":
-            await interaction.response.send_message(
-                "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        if estado:
-            estado["trade_etapa"] = "processando_valor_pix_trade"
-
-        ok, erro = await enviar_qr_fluxo_pix(
-            self.canal,
-            "trade_pix",
-            {
-                "middle_id": self.middle_id,
-                "valor": valor,
-                "pessoa1": self.pessoa1,
-                "pessoa2": self.pessoa2
-            }
-        )
-        if not ok:
-            if estado:
-                estado["trade_etapa"] = "aguardando_valor_pix_trade"
-            await enviar_fluxo(
-                self.canal,
-                f"{erro}\nMiddle: use `/setpix` e clique no botão abaixo para tentar novamente.",
-                view=ReenviarQrPixView(
-                    self.canal,
-                    "trade_pix",
-                    {
-                        "valor": valor,
-                        "pessoa1": self.pessoa1,
-                        "pessoa2": self.pessoa2
-                    }
-                ),
-                cor=cor_paleta("erro")
-            )
-            await interaction.response.send_message(
-                "Não foi possível gerar o QR agora. Configure o PIX e use o botão no ticket.",
-                ephemeral=True,
-                delete_after=60
-            )
-            return
-
-        if estado:
-            estado["trade_etapa"] = "aguardando_pagamento_pix_trade"
-        await interaction.response.send_message("Cobrança enviada.", ephemeral=True, delete_after=60)
-
-
-class TradePixValorView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2, middle_id):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.middle_id = middle_id
-
-    @discord.ui.button(label="Informar valor do PIX", style=ESTILO_BOTAO["sucesso"])
-    async def informar_valor(self, interaction, button):
-        if await em_cooldown(interaction, "trade_informar_valor_pix", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-
-        if interaction.user.id != self.middle_id:
-            await interaction.response.send_message("Apenas o Middle pode informar o valor.", ephemeral=True, delete_after=60)
-            return
-        estado = _estado_negociacao(self.canal.id)
-        if estado and estado.get("trade_etapa") != "aguardando_valor_pix_trade":
-            await interaction.response.send_message(
-                "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        await interaction.response.send_modal(
-            TradePixValorModal(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
-        )
-
-
-class TradeTaxaEscolhaView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2, middle_id):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.middle_id = middle_id
-
-    @discord.ui.button(label="Taxa Pix", style=ESTILO_BOTAO["sucesso"])
-    async def taxa_pix(self, interaction, button):
-        if await em_cooldown(interaction, "trade_escolher_taxa", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-
-        if interaction.user.id != self.middle_id:
-            await interaction.response.send_message("Apenas o Middle pode escolher a taxa.", ephemeral=True, delete_after=60)
-            return
-        estado = _estado_negociacao(self.canal.id)
-        if estado and estado.get("trade_etapa") != "aguardando_escolha_taxa_trade":
-            await interaction.response.send_message(
-                "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        if estado:
-            estado["trade_etapa"] = "aguardando_valor_pix_trade"
-
-        try:
-            await interaction.message.edit(view=None)
-        except Exception:
-            pass
-        await interaction.response.send_message(
-            embed=embed_fluxo(
-                "Middle, informe o valor da taxa em reais",
-                cor=cor_paleta("aviso")
-            ),
-            view=TradePixValorView(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
-        )
-
-    @discord.ui.button(label="Taxa Brainrot", style=ESTILO_BOTAO["primario"])
-    async def taxa_brainrot(self, interaction, button):
-        if await em_cooldown(interaction, "trade_escolher_taxa", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-
-        if interaction.user.id != self.middle_id:
-            await interaction.response.send_message("Apenas o Middle pode escolher a taxa.", ephemeral=True, delete_after=60)
-            return
-        estado = _estado_negociacao(self.canal.id)
-        if estado and estado.get("trade_etapa") != "aguardando_escolha_taxa_trade":
-            await interaction.response.send_message(
-                "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
-            )
-            return
-        if estado:
-            estado["trade_etapa"] = "aguardando_confirmacao_taxa_brainrot_trade"
-
-        try:
-            await interaction.message.edit(view=None)
-        except Exception:
-            pass
-        await interaction.response.send_message(
-            embed=embed_fluxo(
-                "O middle vai receber o Brainrot da taxa. Em seguida, a troca continuará.",
-                cor=cor_paleta("aviso")
-            ),
-            view=ConfirmarTaxaTradeBrainrotView(self.canal, self.pessoa1, self.pessoa2, self.middle_id)
-        )
-
-
-class ConfirmarTaxaTradeBrainrotView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2, middle_id):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-        self.middle_id = middle_id
-
-    @discord.ui.button(label="Recebi a taxa em Brainrot", style=ESTILO_BOTAO["sucesso"])
-    async def confirmar_taxa(self, interaction, button):
-        if await em_cooldown(interaction, "trade_confirmar_taxa_brainrot", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-            if interaction.user.id != self.middle_id:
-                await interaction.response.send_message(
-                    "Apenas o Middle pode confirmar o recebimento da taxa.",
-                    ephemeral=True, delete_after=60
-                )
+            if estado.get("confirm_msg_id"):
                 return
 
-            estado = _estado_negociacao(self.canal.id)
-            if estado and estado.get("trade_etapa") != "aguardando_confirmacao_taxa_brainrot_trade":
-                await interaction.response.send_message(
-                    "Esta etapa já foi processada.",
-                    ephemeral=True, delete_after=60
-                )
-                return
-            if estado:
-                estado["trade_etapa"] = "processando_taxa_brainrot_trade"
-
-            await interaction.response.defer()
-            try:
-                await interaction.message.delete()
-            except discord.NotFound:
-                pass
-
-            if estado:
-                estado["trade_etapa"] = "aguardando_confirmacoes_trade"
-            await enviar_fluxo(
-                self.canal,
-                f"{self.pessoa1.mention} e {self.pessoa2.mention}, confirmem se a troca foi feita:",
-                view=TradeFinalConfirmView(self.canal, self.pessoa1, self.pessoa2),
-                cor=cor_paleta("destaque")
-            )
-
-
-class MiddlemanAcceptTradeView(discord.ui.View):
-    def __init__(self, canal, pessoa1, pessoa2):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.pessoa1 = pessoa1
-        self.pessoa2 = pessoa2
-
-    @discord.ui.button(label="Aceitar Ticket", style=ESTILO_BOTAO["sucesso"])
-    async def aceitar(self, interaction, button):
-        if await em_cooldown(interaction, "aceitar_ticket_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
-        if lock is None:
-            return
-        async with lock:
-            canal_existe = interaction.guild.get_channel(self.canal.id)
-            if canal_existe is None:
-                try:
-                    await interaction.message.delete()
-                except Exception:
-                    pass
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        "Este ticket não existe mais. Mensagem de aceite removida.",
-                        ephemeral=True, delete_after=60
-                    )
+            if estado and estado.get("etapa") == "coleta_dados" and estado.get("valor") is not None:
                 return
 
-            role = get_middle_role(interaction.guild)
-            if role not in interaction.user.roles:
-                await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
-                return
+            estado["etapa"] = "coleta_dados"
+            await TicketView()._iniciar_fluxo_pix_brainrot(self.canal, comprador, vendedor)
 
-            middle_existente = ticket_middleman.get(self.canal.id)
-            if middle_existente is not None:
-                membro_existente = interaction.guild.get_member(int(middle_existente))
-                if membro_existente:
-                    await interaction.response.send_message(
-                        f"Este ticket já foi aceito por {membro_existente.mention}.",
-                        ephemeral=True,
-                        delete_after=60
-                    )
-                else:
-                    await interaction.response.send_message(
-                        "Este ticket já foi aceito por outro Middle.",
-                        ephemeral=True,
-                        delete_after=60
-                    )
-                return
-
-            # Recarrega as partes em tempo real, pois o botão pode ter sido criado
-            # antes da pessoa 2 ser adicionada ao ticket.
-            partes_trade = obter_partes_trade(self.canal)
-            if partes_trade:
-                self.pessoa1 = partes_trade.get("pessoa1")
-                self.pessoa2 = partes_trade.get("pessoa2")
-
-            # Reserva o ticket para este middle antes de qualquer await adicional.
-            salvar_middleman_ticket(self.canal.id, interaction.user.id)
-            if not self.pessoa1 or not self.pessoa2:
-                await interaction.response.defer(ephemeral=True)
-                await self.canal.set_permissions(interaction.user, view_channel=True)
-                msg_loading = ticket_loading_msg.pop(self.canal.id, None)
-                if msg_loading:
-                    try:
-                        await msg_loading.delete()
-                    except Exception:
-                        pass
-
-                embed_middle = discord.Embed(
-                    description=(
-                        f"{interaction.user.mention} **aceitou o ticket e irá realizar o intermédio.**\n\n"
-                        "Você será atendido por um dos membros da nossa equipe.\n"
-                        "Caso tenha alguma dúvida sobre o ticket, pergunte ao Middle Man."
-                    ),
-                    color=cor_paleta("sucesso")
-                )
-                embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
-                await self.canal.send(embed=embed_middle)
-                try:
-                    await interaction.followup.send(
-                        "✅ Ticket assumido com sucesso. Aguarde a escolha das partes para seguir com o fluxo.",
-                        ephemeral=True,
-                        view=IrParaTicketView(self.canal)
-                    )
-                except Exception:
-                    pass
-                try:
-                    await interaction.message.delete()
-                except Exception:
-                    pass
-                return
-
-            await interaction.response.defer(ephemeral=True)
-            await self.canal.set_permissions(interaction.user, view_channel=True)
-
-            msg_loading = ticket_loading_msg.pop(self.canal.id, None)
-            if msg_loading:
-                try:
-                    await msg_loading.delete()
-                except Exception:
-                    pass
-
-            embed_middle = discord.Embed(
-                description=(
-                    f"{interaction.user.mention} **aceitou o ticket e irá realizar o intermédio.**\n\n"
-                    "Você será atendido por um dos membros da nossa equipe.\n"
-                    "Caso tenha alguma dúvida sobre o ticket, pergunte ao Middle Man."
-                ),
-                color=cor_paleta("sucesso")
-            )
-            embed_middle.set_thumbnail(url=interaction.user.display_avatar.url)
-            await self.canal.send(embed=embed_middle)
-            await interaction.followup.send(
-                "✅ Ticket assumido com sucesso.\nClique abaixo para abrir o ticket:",
-                ephemeral=True,
-                view=IrParaTicketView(self.canal)
-            )
-            try:
-                await interaction.message.delete()
-            except Exception:
-                pass
-
-            estado = _estado_negociacao(self.canal.id)
-            if estado and estado.get("trade_etapa") == "aguardando_middle_trade":
-                estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
-                await enviar_fluxo(
-                    self.canal,
-                    "Qual a taxa da trade? (Pix ou Brainrot)",
-                    view=TradeTaxaEscolhaView(self.canal, self.pessoa1, self.pessoa2, interaction.user.id),
-                    cor=cor_paleta("aviso")
-                )
-
-
-class TradeSetupTradeView(discord.ui.View):
-    def __init__(self, canal, criador):
-        super().__init__(timeout=None)
-        self.canal = canal
-        self.criador = criador
-        self.message = None
-        self.escolha_feita = False
-
-    @discord.ui.button(label="Adicionar pessoa da troca", style=ESTILO_BOTAO["primario"])
-    async def adicionar(self, interaction, button):
-        if await em_cooldown(interaction, "trade_adicionar_pessoa", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
-            return
-
-        if interaction.user != self.criador:
-            await interaction.response.send_message("Somente quem abriu o ticket pode escolher.", ephemeral=True, delete_after=60)
-            return
-        if self.escolha_feita:
-            await interaction.response.send_message("Pessoa já foi escolhida.", ephemeral=True, delete_after=60)
-            return
-
-        self.escolha_feita = True
-        button.disabled = True
-        select = discord.ui.UserSelect(placeholder="Escolher pessoa para trocar")
-        select.callback = self.select_pessoa
-        self.add_item(select)
-        await interaction.response.send_message("Escolha a pessoa.", ephemeral=True, delete_after=60)
-        await self.message.edit(view=self)
-
-    async def select_pessoa(self, interaction):
-        if interaction.user != self.criador:
-            await interaction.response.send_message("Somente quem abriu o ticket pode escolher.", ephemeral=True, delete_after=60)
-            return
-
-        membro = interaction.guild.get_member(int(interaction.data["values"][0]))
-        if membro is None or membro == self.criador:
-            await interaction.response.send_message("Seleção inválida.", ephemeral=True, delete_after=60)
-            return
-
-        await self.canal.set_permissions(membro, view_channel=True)
-        salvar_partes_trade(self.canal.id, self.criador, membro)
-        iniciar_negociacao_trade(self.canal.id, self.criador, membro)
-        estado = _estado_negociacao(self.canal.id)
-
-        await self.message.edit(
-            content=f"Pessoa 1: {self.criador.mention}\nPessoa 2: {membro.mention}",
-            view=None
-        )
-        await interaction.response.send_message("Pessoa adicionada.", ephemeral=True, delete_after=60)
-
-        middle_id = ticket_middleman.get(self.canal.id)
-        if middle_id is not None:
-            middle = self.canal.guild.get_member(int(middle_id))
-            if middle is not None:
-                await self.canal.set_permissions(middle, view_channel=True)
-                if estado:
-                    estado["trade_etapa"] = "aguardando_escolha_taxa_trade"
-                await enviar_fluxo(
-                    self.canal,
-                    "Qual a taxa da trade? (Pix ou Brainrot)",
-                    view=TradeTaxaEscolhaView(self.canal, self.criador, membro, middle.id),
-                    cor=cor_paleta("aviso")
-                )
-                return
-            ticket_middleman.pop(self.canal.id, None)
-            salvar_estado_tickets()
-
-        if estado:
-            estado["trade_etapa"] = "aguardando_middle_trade"
-
-
-class TradeSetupView(discord.ui.View):
+class CompraVendaSetupView(discord.ui.View):
     def __init__(self, canal, criador):
         super().__init__(timeout=None)
         self.canal = canal
@@ -3958,7 +2991,7 @@ class TradeSetupView(discord.ui.View):
     # -------- botão comprador --------
     @discord.ui.button(label="Vou Pagar/Comprador", style=ESTILO_BOTAO["primario"])
     async def comprador_btn(self, interaction, button):
-        if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+        if await em_cooldown(interaction, "definir_papel_compra_venda", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
         if interaction.user != self.criador:
@@ -3999,7 +3032,7 @@ class TradeSetupView(discord.ui.View):
     # -------- botão vendedor --------
     @discord.ui.button(label="Vou Receber/Vendedor", style=ESTILO_BOTAO["sucesso"])
     async def vendedor_btn(self, interaction, button):
-        if await em_cooldown(interaction, "definir_papel_trade", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+        if await em_cooldown(interaction, "definir_papel_compra_venda", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
         if interaction.user != self.criador:
@@ -4165,8 +3198,7 @@ class TicketView(discord.ui.View):
             )
             return
 
-        ticket_kind = ticket_type.get(canal.id, "pix")
-        tipo_middle = "Taxa Brain Rot" if ticket_kind == "brainrot" else "Taxa Pix"
+        tipo_middle = "Taxa Pix"
         role_middle = get_middle_role(canal.guild)
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
@@ -4177,57 +3209,6 @@ class TicketView(discord.ui.View):
                     cor=cor_paleta("aviso")
                 ),
                 view=MiddlemanAcceptView(canal, comprador, vendedor)
-            )
-        except discord.Forbidden:
-            await enviar_fluxo(
-                canal,
-                "⚠️ Sem permissão para enviar no canal de aceite configurado. "
-                "Verifique se o bot tem permissão de envio de mensagens.",
-                cor=cor_paleta("erro")
-            )
-
-    async def _avisar_aceite_trade(self, canal, pessoa1, pessoa2):
-        aceite_canal_id = get_aceite_canal_id(canal.guild.id)
-        if not aceite_canal_id:
-            await enviar_fluxo(
-                canal,
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
-                cor=cor_paleta("erro")
-            )
-            return
-
-        try:
-            channel_id = int(aceite_canal_id)
-        except (TypeError, ValueError):
-            channel_id = None
-
-        aceite_channel = None
-        if channel_id is not None:
-            aceite_channel = canal.guild.get_channel(channel_id)
-            if aceite_channel is None:
-                try:
-                    aceite_channel = await canal.guild.fetch_channel(channel_id)
-                except (discord.HTTPException, discord.NotFound, discord.Forbidden):
-                    aceite_channel = None
-
-        if not isinstance(aceite_channel, discord.TextChannel):
-            await enviar_fluxo(
-                canal,
-                "⚠️ Canal de aceite não configurado. Um administrador deve usar `/setaceite`.",
-                cor=cor_paleta("erro")
-            )
-            return
-
-        role_middle = get_middle_role(canal.guild)
-        mencao_middle = role_middle.mention if role_middle else "@Middle Man"
-        try:
-            await aceite_channel.send(
-                content=mencao_middle,
-                embed=embed_fluxo(
-                    f"Ticket aguardando MM (Trade): {canal.mention}",
-                    cor=cor_paleta("aviso")
-                ),
-                view=MiddlemanAcceptTradeView(canal, pessoa1, pessoa2)
             )
         except discord.Forbidden:
             await enviar_fluxo(
@@ -4309,10 +3290,6 @@ class TicketView(discord.ui.View):
         msg_loading = await canal.send(embed=embed)
         ticket_loading_msg[canal.id] = msg_loading
 
-        if ticket_kind == "trade":
-            await self._avisar_aceite_trade(canal, comprador, vendedor)
-            return
-
         await self._avisar_aceite_pix_brainrot(canal, comprador, vendedor)
 
     async def _iniciar_fluxo_pix_brainrot(self, canal, comprador, vendedor, reiniciado=False):
@@ -4374,7 +3351,7 @@ class TicketView(discord.ui.View):
             title="📢 LEIA COM ATENÇÃO",
             description=(
                 "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
+                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da negociação.\n\n"
                 "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
                 "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
                 f"Obrigado.{interaction.user.mention}"
@@ -4406,7 +3383,7 @@ class TicketView(discord.ui.View):
         await canal.send(embed=aviso_comprovacao)
 
         await self._avisar_middles_no_canal(canal, ticket_kind="pix")
-        view = TradeSetupView(canal, interaction.user)
+        view = CompraVendaSetupView(canal, interaction.user)
         msg = await enviar_fluxo(
             canal,
             "Você vai **PAGAR** ou **RECEBER** o dinheiro",
@@ -4422,206 +3399,11 @@ class TicketView(discord.ui.View):
             "Clique abaixo para encontrá-lo."
         )
 
-    async def criar_ticket_middleman_brainrot(self, interaction):
-        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
-                )
-            else:
-                await interaction.response.send_message(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
-                )
-            return
-
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "💠-ticket-middle-brainrot")
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True)
-        }
-
-        canal = await interaction.guild.create_text_channel(
-            name=nome_canal,
-            overwrites=overwrites,
-            category=await self.obter_ou_criar_categoria_middle(interaction.guild)
-        )
-        salvar_tipo_ticket(canal.id, "brainrot")
-        salvar_criador_ticket(canal.id, interaction.user.id)
-
-        aviso = discord.Embed(
-            title="📢 LEIA COM ATENÇÃO",
-            description=(
-                "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
-                "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
-                "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
-                f"Obrigado.{interaction.user.mention}"
-            ),
-            color=cor_paleta("info")
-        )
-
-        await enviar_fluxo(
-            canal,
-            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
-            "*Responda as perguntas para continuar o atendimento.*",
-            cor=cor_paleta("sucesso")
-        )
-
-        await canal.send(
-            embed=aviso,
-            view=FecharTicketView(canal)
-        )
-        aviso_comprovacao = discord.Embed(
-            description=(
-                "Solicitamos que toda a negociação, bem como a entrega e o recebimento do produto, "
-                "sejam devidamente gravados ou registrados por meio de prints.\n\n"
-                "Em casos de denúncia por não recebimento, poderão ser solicitadas provas que comprovem "
-                "a transação e a entrega.\n\n"
-                "Ressaltamos que, na ausência dessas comprovações, o julgamento poderá ser considerado "
-                "insatisfatório para uma das partes."
-            ),
-            color=cor_paleta("erro")
-        )
-        await canal.send(embed=aviso_comprovacao)
-
-        await self._avisar_middles_no_canal(canal, ticket_kind="brainrot")
-        view = TradeSetupView(canal, interaction.user)
-        msg = await enviar_fluxo(
-            canal,
-            "Você é comprador ou vendedor?",
-            view=view,
-            cor=cor_paleta("primario")
-        )
-        view.message = msg
-
-        await self._enviar_confirmacao_abertura(
-            interaction,
-            canal,
-            f"✅ | {interaction.user.mention}, seu ticket foi aberto!\n"
-            "Clique abaixo para encontrá-lo."
-        )
-
-    async def criar_ticket_middleman_trade(self, interaction):
-        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
-                )
-            else:
-                await interaction.response.send_message(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
-                )
-            return
-
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
-        nome_canal = self.proximo_nome_ticket(interaction.guild, "💱-ticket-middle-trade")
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True)
-        }
-
-        canal = await interaction.guild.create_text_channel(
-            name=nome_canal,
-            overwrites=overwrites,
-            category=await self.obter_ou_criar_categoria_middle(interaction.guild)
-        )
-        salvar_tipo_ticket(canal.id, "trade")
-        salvar_criador_ticket(canal.id, interaction.user.id)
-
-        aviso = discord.Embed(
-            title="📢 LEIA COM ATENÇÃO",
-            description=(
-                "A taxa de middleman não é reembolsável.\n\n"
-                "Ao assumir um ticket, o middle reserva tempo, disponibilidade e responsabilidade exclusiva para aquela negociação, deixando de atender outros atendimentos. Dessa forma, o serviço é considerado iniciado no momento da designação do middle, independentemente da conclusão da trade.\n\n"
-                "Em caso de desistência de qualquer das partes após o pagamento, não há reembolso da taxa, conforme regras do servidor e os princípios da prestação de serviços e da boa-fé objetiva previstos no Código Civil Brasileiro.\n\n"
-                "Ao efetuar o pagamento, o usuário declara estar ciente e de acordo com essa política.\n\n"
-                f"Obrigado.{interaction.user.mention}"
-            ),
-            color=cor_paleta("info")
-        )
-
-        await enviar_fluxo(
-            canal,
-            f"👋 {interaction.user.mention} **seu ticket foi aberto com sucesso!**\n\n"
-            "*Responda as perguntas para continuar o atendimento.*",
-            cor=cor_paleta("sucesso")
-        )
-
-        await canal.send(
-            embed=aviso,
-            view=FecharTicketView(canal)
-        )
-        aviso_comprovacao = discord.Embed(
-            description=(
-                "Solicitamos que toda a negociação, bem como a entrega e o recebimento do produto, "
-                "sejam devidamente gravados ou registrados por meio de prints.\n\n"
-                "Em casos de denúncia por não recebimento, poderão ser solicitadas provas que comprovem "
-                "a transação e a entrega.\n\n"
-                "Ressaltamos que, na ausência dessas comprovações, o julgamento poderá ser considerado "
-                "insatisfatório para uma das partes."
-            ),
-            color=cor_paleta("erro")
-        )
-        await canal.send(embed=aviso_comprovacao)
-
-        view_trade = TradeSetupTradeView(canal, interaction.user)
-        msg = await enviar_fluxo(
-            canal,
-            "Com quem você vai trocar?",
-            view=view_trade,
-            cor=cor_paleta("primario")
-        )
-        view_trade.message = msg
-        await self._avisar_middles_no_canal(canal, ticket_kind="trade")
-
-        await self._enviar_confirmacao_abertura(
-            interaction,
-            canal,
-            f"✅ | {interaction.user.mention}, seu ticket de trade foi aberto!\n"
-            "Clique abaixo para encontrá-lo."
-        )
-
-    class EscolhaTaxaMiddleView(discord.ui.View):
-        def __init__(self, ticket_view):
-            super().__init__(timeout=120)
-            self.ticket_view = ticket_view
-
-        @discord.ui.button(label="Venda/Compra | Taxa Pix", style=ESTILO_BOTAO["sucesso"])
-        async def taxa_pix(self, interaction, button):
-            if await em_cooldown(interaction, "abrir_ticket_middle", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
-                return
-            await self.ticket_view.criar_ticket_middleman_pix(interaction)
-
-        @discord.ui.button(label="Venda/Compra | Taxa Brainrot", style=ESTILO_BOTAO["primario"])
-        async def taxa_brainrot(self, interaction, button):
-            if await em_cooldown(interaction, "abrir_ticket_middle", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
-                return
-            await self.ticket_view.criar_ticket_middleman_brainrot(interaction)
-
-        @discord.ui.button(label="Trade", style=ESTILO_BOTAO["perigo"])
-        async def trade(self, interaction, button):
-            if await em_cooldown(interaction, "abrir_ticket_middle", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
-                return
-            await self.ticket_view.criar_ticket_middleman_trade(interaction)
-
     @discord.ui.button(label="💠Solicitar Middle Man", style=ESTILO_BOTAO["sucesso"])
     async def abrir(self, interaction, button):
-        if await em_cooldown(interaction, "abrir_menu_ticket_middle", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+        if await em_cooldown(interaction, "abrir_ticket_middle", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
             return
-        await interaction.response.send_message(
-            "Escolha o tipo de Middle Man para solicitar:",
-            view=self.EscolhaTaxaMiddleView(self),
-            ephemeral=True, delete_after=60
-        )
+        await self.criar_ticket_middleman_pix(interaction)
 
 
 bot = botd()
