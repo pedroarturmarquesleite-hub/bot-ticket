@@ -2627,6 +2627,37 @@ class ConfirmarNegociacaoView(discord.ui.View):
         )
         self.stop()
 
+    async def _voltar_coleta_dados(self):
+        estado = _estado_negociacao(self.canal.id)
+        if estado is None:
+            iniciar_negociacao_ticket(self.canal.id, self.comprador, self.vendedor)
+            estado = _estado_negociacao(self.canal.id)
+
+        estado["valor"] = None
+        estado["brainrot_nome"] = None
+        estado["confirm_msg_id"] = None
+        estado["etapa"] = "coleta_dados"
+
+        for msg_id in list(self.mensagens_confirmacao_ids):
+            try:
+                msg = await self.canal.fetch_message(msg_id)
+                await msg.delete()
+            except Exception:
+                pass
+        self.mensagens_confirmacao_ids.clear()
+
+        view_dados = NegociacaoDadosView(self.canal, self.comprador, self.vendedor)
+        msg_dados = await enviar_fluxo(
+            self.canal,
+            (
+                f"{self.comprador.mention} **informe o valor da negociação.**\n"
+                f"{self.vendedor.mention} **informe qual item será negociado.**"
+            ),
+            view=view_dados,
+            cor=cor_paleta("aviso")
+        )
+        view_dados.message = msg_dados
+
     @discord.ui.button(label="Comprador confirma valor", style=ESTILO_BOTAO["sucesso"])
     async def confirmar_valor(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_valor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
@@ -2684,6 +2715,40 @@ class ConfirmarNegociacaoView(discord.ui.View):
             msg = await self.canal.send(embed=embed)
             self.mensagens_confirmacao_ids.append(msg.id)
             await self._seguir_fluxo(interaction)
+
+    @discord.ui.button(label="Negociação errada", style=ESTILO_BOTAO["perigo"])
+    async def negociacao_errada(self, interaction, button):
+        if await em_cooldown(interaction, "negociacao_errada", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
+        if lock is None:
+            return
+        async with lock:
+            if interaction.user not in {self.comprador, self.vendedor}:
+                await interaction.response.send_message(
+                    "Somente comprador ou vendedor podem usar este botão.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+                return
+
+            estado = _estado_negociacao(self.canal.id)
+            if estado and estado.get("etapa") != "aguardando_confirmacoes":
+                await interaction.response.send_message(
+                    "Esta etapa já foi processada. Não é possível voltar agora.",
+                    ephemeral=True,
+                    delete_after=60
+                )
+                return
+
+            await interaction.response.defer()
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
+
+            await self._voltar_coleta_dados()
+            self.stop()
 
 
 class ValorModal(discord.ui.Modal, title="Valor da negociação"):
