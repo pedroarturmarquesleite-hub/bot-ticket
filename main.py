@@ -43,6 +43,7 @@ MIDDLE_CATEGORY_CONFIG_FILE = os.path.join(APP_DATA_DIR, "middle_category_config
 LEVELS_CONFIG_FILE = os.path.join(APP_DATA_DIR, "levels_config.json")
 SPENDING_CONFIG_FILE = os.path.join(APP_DATA_DIR, "spending_config.json")
 MM_TAXA_METRICS_FILE = os.path.join(APP_DATA_DIR, "mm_taxa_metrics.json")
+USER_PROFILE_METRICS_FILE = os.path.join(APP_DATA_DIR, "user_profile_metrics.json")
 SETTINGS_DB_FILE = os.path.join(APP_DATA_DIR, "bot_settings.db")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
@@ -102,6 +103,7 @@ def migrar_dados_legados():
     migrar_arquivo_legado(LEVELS_CONFIG_FILE, [os.path.join(cwd, "levels_config.json"), "levels_config.json"])
     migrar_arquivo_legado(SPENDING_CONFIG_FILE, [os.path.join(cwd, "spending_config.json"), "spending_config.json"])
     migrar_arquivo_legado(MM_TAXA_METRICS_FILE, [os.path.join(cwd, "mm_taxa_metrics.json"), "mm_taxa_metrics.json"])
+    migrar_arquivo_legado(USER_PROFILE_METRICS_FILE, [os.path.join(cwd, "user_profile_metrics.json"), "user_profile_metrics.json"])
 
 
 def setup_logger():
@@ -591,6 +593,7 @@ async def enviar_log_fechamento_ticket(guild, canal):
             try:
                 novo_total = adicionar_gasto_usuario(guild.id, uid, valor_total_num)
                 totais_gastos_participantes[uid] = novo_total
+                registrar_user_intermediacao(guild.id, uid, valor_total_num)
                 await atualizar_cargos_niveis_usuario(guild, uid, novo_total)
             except Exception:
                 logger.exception(
@@ -1201,6 +1204,87 @@ def obter_gasto_usuario(guild_id, user_id):
         return float(valor)
     except (TypeError, ValueError):
         return 0.0
+
+
+def carregar_user_profile_metrics():
+    if not os.path.exists(USER_PROFILE_METRICS_FILE):
+        return {}
+    with open(USER_PROFILE_METRICS_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def salvar_user_profile_metrics(data):
+    with open(USER_PROFILE_METRICS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def registrar_user_intermediacao(guild_id, user_id, valor_total):
+    try:
+        valor = float(valor_total)
+    except (TypeError, ValueError):
+        return
+    if valor <= 0:
+        return
+
+    data = carregar_user_profile_metrics()
+    guild_key = str(guild_id)
+    user_key = str(user_id)
+
+    guild_data = data.get(guild_key, {})
+    if not isinstance(guild_data, dict):
+        guild_data = {}
+
+    user_data = guild_data.get(user_key, {})
+    if not isinstance(user_data, dict):
+        user_data = {}
+
+    total_intermedios = _id_int(user_data.get("total_intermedios")) or 0
+    try:
+        maior_transacao = float(user_data.get("maior_transacao", 0.0))
+    except (TypeError, ValueError):
+        maior_transacao = 0.0
+
+    total_intermedios += 1
+    maior_transacao = max(maior_transacao, valor)
+
+    user_data["total_intermedios"] = total_intermedios
+    user_data["maior_transacao"] = round(maior_transacao, 2)
+    user_data["updated_ts"] = int(discord.utils.utcnow().timestamp())
+    guild_data[user_key] = user_data
+    data[guild_key] = guild_data
+    salvar_user_profile_metrics(data)
+
+
+def obter_user_profile_metrics(guild_id, user_id):
+    data = carregar_user_profile_metrics()
+    guild_data = data.get(str(guild_id), {})
+    if not isinstance(guild_data, dict):
+        return {"total_intermedios": 0, "maior_transacao": 0.0}
+    user_data = guild_data.get(str(user_id), {})
+    if not isinstance(user_data, dict):
+        return {"total_intermedios": 0, "maior_transacao": 0.0}
+
+    total_intermedios = _id_int(user_data.get("total_intermedios")) or 0
+    try:
+        maior_transacao = float(user_data.get("maior_transacao", 0.0))
+    except (TypeError, ValueError):
+        maior_transacao = 0.0
+    return {
+        "total_intermedios": total_intermedios,
+        "maior_transacao": max(0.0, maior_transacao),
+    }
+
+
+def formatar_brl(valor: float) -> str:
+    try:
+        txt = f"{float(valor):,.2f}"
+    except (TypeError, ValueError):
+        txt = "0.00"
+    txt = txt.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {txt}"
 
 
 async def atualizar_cargos_niveis_usuario(guild, user_id, total_gasto):
@@ -2176,7 +2260,7 @@ class ConfirmarPagamentoView(discord.ui.View):
                 estado["etapa"] = "aguardando_confirmacao_entrega"
             await enviar_fluxo(
                 self.canal,
-                f"📦 {self.comprador.mention}, confirme que recebeu o Item:",
+                f"📦 {self.comprador.mention}, assim que receber o item confirme que recebeu:",
                 view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
                 cor=cor_paleta("destaque")
             )
@@ -3854,6 +3938,64 @@ async def mmt(interaction: discord.Interaction):
         color=cor_paleta("info")
     )
     embed.set_footer(text=f"Servidor: {interaction.guild.name}")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="perfil", description="Mostra seu perfil financeiro no servidor")
+async def perfil(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando só pode ser usado dentro de um servidor.",
+            ephemeral=True
+        )
+        return
+
+    guild = interaction.guild
+    member = interaction.user
+    total_gasto = obter_gasto_usuario(guild.id, member.id)
+    stats = obter_user_profile_metrics(guild.id, member.id)
+    total_intermedios = stats.get("total_intermedios", 0)
+    maior_transacao = stats.get("maior_transacao", 0.0)
+
+    niveis = get_levels_guild(guild.id)
+    cargo_atual = None
+    proximo_nivel = None
+    for nivel in niveis:
+        role = guild.get_role(nivel["role_id"])
+        if role is None:
+            continue
+        if total_gasto >= float(nivel["min_total"]):
+            cargo_atual = role
+        elif proximo_nivel is None:
+            proximo_nivel = {"role": role, "min_total": float(nivel["min_total"])}
+
+    if cargo_atual is None and niveis:
+        primeiro = guild.get_role(niveis[0]["role_id"])
+        cargo_atual_txt = "Nenhum nível alcançado"
+        if primeiro and primeiro in member.roles:
+            cargo_atual_txt = primeiro.mention
+    else:
+        cargo_atual_txt = cargo_atual.mention if cargo_atual else "Não configurado"
+
+    if proximo_nivel is None:
+        proximo_txt = "Você já está no nível máximo configurado."
+    else:
+        falta = max(0.0, proximo_nivel["min_total"] - total_gasto)
+        proximo_txt = f"Faltam **{formatar_brl(falta)}** para o cargo {proximo_nivel['role'].mention}."
+
+    embed = discord.Embed(
+        title=f"Perfil de {member.display_name}",
+        description="• Estatísticas pessoais de movimentação financeira.",
+        color=cor_paleta("info")
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="Cargo atual", value=cargo_atual_txt, inline=False)
+    embed.add_field(name="Próximo cargo", value=proximo_txt, inline=False)
+    embed.add_field(name="Valor total gasto", value=f"`{formatar_brl(total_gasto)}`", inline=True)
+    embed.add_field(name="Maior transação", value=f"`{formatar_brl(maior_transacao)}`", inline=True)
+    embed.add_field(name="Total de intermédios", value=f"`{int(total_intermedios)}`", inline=True)
+    embed.set_footer(text=f"Servidor: {guild.name}")
+
     await interaction.response.send_message(embed=embed)
 
 
