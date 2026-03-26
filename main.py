@@ -156,7 +156,7 @@ async def em_cooldown(interaction: discord.Interaction, action: str, segundos: i
         texto = f"Aguarde {restante}s para usar este botão novamente."
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(texto, ephemeral=True)
+                await interaction.followup.send(texto, ephemeral=True, delete_after=5)
             else:
                 await interaction.response.send_message(texto, ephemeral=True, delete_after=5)
         except Exception:
@@ -190,9 +190,9 @@ async def ticket_lock_or_wait_msg(interaction: discord.Interaction, canal_id: in
     texto = "Outra ação já está em processamento neste ticket. Aguarde alguns segundos."
     try:
         if interaction.response.is_done():
-            await interaction.followup.send(texto, ephemeral=True)
+            await interaction.followup.send(texto, ephemeral=True, delete_after=5)
         else:
-            await interaction.response.send_message(texto, ephemeral=True, delete_after=60)
+            await interaction.response.send_message(texto, ephemeral=True, delete_after=5)
     except Exception:
         pass
     return None
@@ -851,6 +851,46 @@ def init_settings_db():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS user_spending (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                total_spent REAL NOT NULL DEFAULT 0,
+                updated_ts INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mm_taxa_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                middle_id INTEGER NOT NULL,
+                valor_taxa REAL NOT NULL,
+                ts INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_mm_taxa_events_guild_ts
+            ON mm_taxa_events (guild_id, ts)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_profile_metrics (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                total_intermedios INTEGER NOT NULL DEFAULT 0,
+                maior_transacao REAL NOT NULL DEFAULT 0,
+                updated_ts INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS migration_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -975,6 +1015,110 @@ def migrate_json_configs_to_db():
             """
             INSERT INTO migration_meta (key, value)
             VALUES ('json_to_sqlite_v1', 'done')
+            ON CONFLICT(key) DO UPDATE SET value='done'
+            """
+        )
+        conn.commit()
+
+
+def migrate_json_metrics_to_db():
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            "SELECT value FROM migration_meta WHERE key = 'json_metrics_to_sqlite_v1'"
+        ).fetchone()
+        if row and str(row[0]) == "done":
+            return
+
+        spending_cfg = _load_json_file(SPENDING_CONFIG_FILE)
+        mm_taxa_cfg = _load_json_file(MM_TAXA_METRICS_FILE)
+        profile_cfg = _load_json_file(USER_PROFILE_METRICS_FILE)
+
+        # spending_config.json -> user_spending
+        if isinstance(spending_cfg, dict):
+            for guild_key, guild_data in spending_cfg.items():
+                guild_id = _id_int(guild_key)
+                if guild_id is None or not isinstance(guild_data, dict):
+                    continue
+                for user_key, total in guild_data.items():
+                    user_id = _id_int(user_key)
+                    try:
+                        total_spent = float(total)
+                    except (TypeError, ValueError):
+                        continue
+                    if user_id is None or total_spent < 0:
+                        continue
+                    conn.execute(
+                        """
+                        INSERT INTO user_spending (guild_id, user_id, total_spent, updated_ts)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                            total_spent = MAX(user_spending.total_spent, excluded.total_spent),
+                            updated_ts = MAX(user_spending.updated_ts, excluded.updated_ts)
+                        """,
+                        (guild_id, user_id, round(total_spent, 2), int(discord.utils.utcnow().timestamp()))
+                    )
+
+        # mm_taxa_metrics.json -> mm_taxa_events
+        if isinstance(mm_taxa_cfg, dict):
+            for guild_key, eventos in mm_taxa_cfg.items():
+                guild_id = _id_int(guild_key)
+                if guild_id is None or not isinstance(eventos, list):
+                    continue
+                for evento in eventos:
+                    if not isinstance(evento, dict):
+                        continue
+                    middle_id = _id_int(evento.get("middle_id"))
+                    ts = _id_int(evento.get("ts"))
+                    try:
+                        valor_taxa = float(evento.get("valor_taxa"))
+                    except (TypeError, ValueError):
+                        continue
+                    if middle_id is None or ts is None or valor_taxa <= 0:
+                        continue
+                    conn.execute(
+                        """
+                        INSERT INTO mm_taxa_events (guild_id, middle_id, valor_taxa, ts)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (guild_id, middle_id, round(valor_taxa, 2), int(ts))
+                    )
+
+        # user_profile_metrics.json -> user_profile_metrics
+        if isinstance(profile_cfg, dict):
+            for guild_key, guild_data in profile_cfg.items():
+                guild_id = _id_int(guild_key)
+                if guild_id is None or not isinstance(guild_data, dict):
+                    continue
+                for user_key, payload in guild_data.items():
+                    user_id = _id_int(user_key)
+                    if user_id is None or not isinstance(payload, dict):
+                        continue
+                    total_intermedios = _id_int(payload.get("total_intermedios")) or 0
+                    try:
+                        maior_transacao = float(payload.get("maior_transacao", 0.0))
+                    except (TypeError, ValueError):
+                        maior_transacao = 0.0
+                    updated_ts = _id_int(payload.get("updated_ts")) or int(discord.utils.utcnow().timestamp())
+                    conn.execute(
+                        """
+                        INSERT INTO user_profile_metrics (guild_id, user_id, total_intermedios, maior_transacao, updated_ts)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                            total_intermedios = MAX(user_profile_metrics.total_intermedios, excluded.total_intermedios),
+                            maior_transacao = MAX(user_profile_metrics.maior_transacao, excluded.maior_transacao),
+                            updated_ts = MAX(user_profile_metrics.updated_ts, excluded.updated_ts)
+                        """,
+                        (guild_id, user_id, int(total_intermedios), round(max(0.0, maior_transacao), 2), int(updated_ts))
+                    )
+
+        # Limpa eventos antigos para evitar crescimento de banco.
+        limite = int(discord.utils.utcnow().timestamp()) - (30 * 24 * 60 * 60)
+        conn.execute("DELETE FROM mm_taxa_events WHERE ts < ?", (limite,))
+
+        conn.execute(
+            """
+            INSERT INTO migration_meta (key, value)
+            VALUES ('json_metrics_to_sqlite_v1', 'done')
             ON CONFLICT(key) DO UPDATE SET value='done'
             """
         )
@@ -1186,67 +1330,46 @@ def set_level_guild(guild_id, role_id, min_total):
         conn.commit()
 
 
-def carregar_spending_config():
-    if not os.path.exists(SPENDING_CONFIG_FILE):
-        return {}
-    with open(SPENDING_CONFIG_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict):
-        return data
-    return {}
-
-
-def salvar_spending_config(data):
-    with open(SPENDING_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-
 def adicionar_gasto_usuario(guild_id, user_id, valor):
-    data = carregar_spending_config()
-    guild_key = str(guild_id)
-    user_key = str(user_id)
-    guild_data = data.get(guild_key, {})
-    if not isinstance(guild_data, dict):
-        guild_data = {}
-
-    atual = guild_data.get(user_key, 0.0)
     try:
-        atual = float(atual)
+        incremento = float(valor)
     except (TypeError, ValueError):
-        atual = 0.0
+        incremento = 0.0
+    if incremento < 0:
+        incremento = 0.0
 
-    novo_total = atual + float(valor)
-    guild_data[user_key] = round(novo_total, 2)
-    data[guild_key] = guild_data
-    salvar_spending_config(data)
-    return float(guild_data[user_key])
+    agora = int(discord.utils.utcnow().timestamp())
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_spending (guild_id, user_id, total_spent, updated_ts)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                total_spent = user_spending.total_spent + excluded.total_spent,
+                updated_ts = excluded.updated_ts
+            """,
+            (int(guild_id), int(user_id), round(incremento, 2), agora)
+        )
+        row = conn.execute(
+            "SELECT total_spent FROM user_spending WHERE guild_id = ? AND user_id = ?",
+            (int(guild_id), int(user_id))
+        ).fetchone()
+        conn.commit()
+    return float(row[0]) if row else 0.0
 
 
 def obter_gasto_usuario(guild_id, user_id):
-    data = carregar_spending_config()
-    guild_data = data.get(str(guild_id), {})
-    if not isinstance(guild_data, dict):
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            "SELECT total_spent FROM user_spending WHERE guild_id = ? AND user_id = ?",
+            (int(guild_id), int(user_id))
+        ).fetchone()
+    if not row:
         return 0.0
-    valor = guild_data.get(str(user_id), 0.0)
     try:
-        return float(valor)
+        return float(row[0])
     except (TypeError, ValueError):
         return 0.0
-
-
-def carregar_user_profile_metrics():
-    if not os.path.exists(USER_PROFILE_METRICS_FILE):
-        return {}
-    with open(USER_PROFILE_METRICS_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict):
-        return data
-    return {}
-
-
-def salvar_user_profile_metrics(data):
-    with open(USER_PROFILE_METRICS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
 
 
 def registrar_user_intermediacao(guild_id, user_id, valor_total):
@@ -1257,47 +1380,40 @@ def registrar_user_intermediacao(guild_id, user_id, valor_total):
     if valor <= 0:
         return
 
-    data = carregar_user_profile_metrics()
-    guild_key = str(guild_id)
-    user_key = str(user_id)
-
-    guild_data = data.get(guild_key, {})
-    if not isinstance(guild_data, dict):
-        guild_data = {}
-
-    user_data = guild_data.get(user_key, {})
-    if not isinstance(user_data, dict):
-        user_data = {}
-
-    total_intermedios = _id_int(user_data.get("total_intermedios")) or 0
-    try:
-        maior_transacao = float(user_data.get("maior_transacao", 0.0))
-    except (TypeError, ValueError):
-        maior_transacao = 0.0
-
-    total_intermedios += 1
-    maior_transacao = max(maior_transacao, valor)
-
-    user_data["total_intermedios"] = total_intermedios
-    user_data["maior_transacao"] = round(maior_transacao, 2)
-    user_data["updated_ts"] = int(discord.utils.utcnow().timestamp())
-    guild_data[user_key] = user_data
-    data[guild_key] = guild_data
-    salvar_user_profile_metrics(data)
+    agora = int(discord.utils.utcnow().timestamp())
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_profile_metrics (guild_id, user_id, total_intermedios, maior_transacao, updated_ts)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                total_intermedios = user_profile_metrics.total_intermedios + 1,
+                maior_transacao = MAX(user_profile_metrics.maior_transacao, excluded.maior_transacao),
+                updated_ts = excluded.updated_ts
+            """,
+            (int(guild_id), int(user_id), round(valor, 2), agora)
+        )
+        conn.commit()
 
 
 def obter_user_profile_metrics(guild_id, user_id):
-    data = carregar_user_profile_metrics()
-    guild_data = data.get(str(guild_id), {})
-    if not isinstance(guild_data, dict):
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        row = conn.execute(
+            """
+            SELECT total_intermedios, maior_transacao
+            FROM user_profile_metrics
+            WHERE guild_id = ? AND user_id = ?
+            """,
+            (int(guild_id), int(user_id))
+        ).fetchone()
+    if not row:
         return {"total_intermedios": 0, "maior_transacao": 0.0}
-    user_data = guild_data.get(str(user_id), {})
-    if not isinstance(user_data, dict):
-        return {"total_intermedios": 0, "maior_transacao": 0.0}
-
-    total_intermedios = _id_int(user_data.get("total_intermedios")) or 0
     try:
-        maior_transacao = float(user_data.get("maior_transacao", 0.0))
+        total_intermedios = int(row[0])
+    except (TypeError, ValueError):
+        total_intermedios = 0
+    try:
+        maior_transacao = float(row[1])
     except (TypeError, ValueError):
         maior_transacao = 0.0
     return {
@@ -1372,21 +1488,6 @@ async def atualizar_cargos_niveis_usuario(guild, user_id, total_gasto):
                 )
 
 
-def carregar_mm_taxa_metrics():
-    if not os.path.exists(MM_TAXA_METRICS_FILE):
-        return {}
-    with open(MM_TAXA_METRICS_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict):
-        return data
-    return {}
-
-
-def salvar_mm_taxa_metrics(data):
-    with open(MM_TAXA_METRICS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-
 def registrar_mm_taxa(guild_id, middle_id, valor_taxa):
     if middle_id is None:
         return
@@ -1397,102 +1498,67 @@ def registrar_mm_taxa(guild_id, middle_id, valor_taxa):
     if valor <= 0:
         return
 
-    data = carregar_mm_taxa_metrics()
-    guild_key = str(guild_id)
-    eventos = data.get(guild_key, [])
-    if not isinstance(eventos, list):
-        eventos = []
-
     agora = int(discord.utils.utcnow().timestamp())
-    eventos.append(
-        {
-            "middle_id": int(middle_id),
-            "valor_taxa": round(valor, 2),
-            "ts": agora
-        }
-    )
-
-    # Mantem 30 dias para não crescer indefinidamente.
     limite = agora - (30 * 24 * 60 * 60)
-    eventos = [
-        e for e in eventos
-        if isinstance(e, dict) and _id_int(e.get("ts")) is not None and int(e.get("ts")) >= limite
-    ]
-    data[guild_key] = eventos
-    salvar_mm_taxa_metrics(data)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        conn.execute(
+            """
+            INSERT INTO mm_taxa_events (guild_id, middle_id, valor_taxa, ts)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(guild_id), int(middle_id), round(valor, 2), agora)
+        )
+        conn.execute(
+            "DELETE FROM mm_taxa_events WHERE guild_id = ? AND ts < ?",
+            (int(guild_id), limite)
+        )
+        conn.commit()
+
+
+def _intervalo_dia_brt_em_ts(data_brt_ref):
+    inicio_brt = datetime(
+        year=data_brt_ref.year,
+        month=data_brt_ref.month,
+        day=data_brt_ref.day,
+        tzinfo=ZoneInfo("America/Sao_Paulo")
+    )
+    fim_brt = inicio_brt + timedelta(days=1)
+    return int(inicio_brt.timestamp()), int(fim_brt.timestamp())
 
 
 def ranking_mm_taxa_24h(guild_id):
-    data = carregar_mm_taxa_metrics()
-    eventos = data.get(str(guild_id), [])
-    if not isinstance(eventos, list):
-        return []
-
-    agora_utc = discord.utils.utcnow()
-    agora_brt = agora_utc.astimezone(ZoneInfo("America/Sao_Paulo"))
-    data_brt_atual = agora_brt.date()
-    agora = int(agora_utc.timestamp())
-    ranking = {}
-    eventos_validos = []
-
-    for evento in eventos:
-        if not isinstance(evento, dict):
-            continue
-        ts = _id_int(evento.get("ts"))
-        middle_id = _id_int(evento.get("middle_id"))
-        try:
-            valor = float(evento.get("valor_taxa"))
-        except (TypeError, ValueError):
-            continue
-        if ts is None or middle_id is None or valor <= 0:
-            continue
-        dt_evento_brt = datetime.fromtimestamp(ts, tz=ZoneInfo("America/Sao_Paulo"))
-        if dt_evento_brt.date() == data_brt_atual:
-            ranking[middle_id] = ranking.get(middle_id, 0.0) + valor
-        if ts >= (agora - (30 * 24 * 60 * 60)):
-            eventos_validos.append(
-                {"middle_id": middle_id, "valor_taxa": round(valor, 2), "ts": ts}
-            )
-
-    data[str(guild_id)] = eventos_validos
-    salvar_mm_taxa_metrics(data)
-
-    return sorted(ranking.items(), key=lambda x: x[1], reverse=True)
+    data_brt_atual = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo")).date()
+    return ranking_mm_taxa_por_data(guild_id, data_brt_atual)
 
 
 def ranking_mm_taxa_por_data(guild_id, data_brt_ref):
-    data = carregar_mm_taxa_metrics()
-    eventos = data.get(str(guild_id), [])
-    if not isinstance(eventos, list):
-        return []
-
+    inicio_ts, fim_ts = _intervalo_dia_brt_em_ts(data_brt_ref)
     agora = int(discord.utils.utcnow().timestamp())
-    ranking = {}
-    eventos_validos = []
+    limite = agora - (30 * 24 * 60 * 60)
+    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+        rows = conn.execute(
+            """
+            SELECT middle_id, SUM(valor_taxa) AS total
+            FROM mm_taxa_events
+            WHERE guild_id = ? AND ts >= ? AND ts < ?
+            GROUP BY middle_id
+            ORDER BY total DESC
+            """,
+            (int(guild_id), int(inicio_ts), int(fim_ts))
+        ).fetchall()
+        conn.execute(
+            "DELETE FROM mm_taxa_events WHERE guild_id = ? AND ts < ?",
+            (int(guild_id), limite)
+        )
+        conn.commit()
 
-    for evento in eventos:
-        if not isinstance(evento, dict):
-            continue
-        ts = _id_int(evento.get("ts"))
-        middle_id = _id_int(evento.get("middle_id"))
+    ranking = []
+    for middle_id, total in rows:
         try:
-            valor = float(evento.get("valor_taxa"))
+            ranking.append((int(middle_id), float(total)))
         except (TypeError, ValueError):
             continue
-        if ts is None or middle_id is None or valor <= 0:
-            continue
-
-        dt_evento_brt = datetime.fromtimestamp(ts, tz=ZoneInfo("America/Sao_Paulo"))
-        if dt_evento_brt.date() == data_brt_ref:
-            ranking[middle_id] = ranking.get(middle_id, 0.0) + valor
-        if ts >= (agora - (30 * 24 * 60 * 60)):
-            eventos_validos.append(
-                {"middle_id": middle_id, "valor_taxa": round(valor, 2), "ts": ts}
-            )
-
-    data[str(guild_id)] = eventos_validos
-    salvar_mm_taxa_metrics(data)
-    return sorted(ranking.items(), key=lambda x: x[1], reverse=True)
+    return ranking
 
 
 def get_ultimo_envio_ranking_diario(guild_id):
@@ -1569,6 +1635,7 @@ def salvar_taxa_config_guild(guild_id, cfg):
 migrar_dados_legados()
 init_settings_db()
 migrate_json_configs_to_db()
+migrate_json_metrics_to_db()
 carregar_estado_tickets_memoria()
 
 
@@ -1666,9 +1733,9 @@ class botd(discord.Client):
 
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(mensagem, ephemeral=True)
+                await interaction.followup.send(mensagem, ephemeral=True, delete_after=5)
             else:
-                await interaction.response.send_message(mensagem, ephemeral=True, delete_after=60)
+                await interaction.response.send_message(mensagem, ephemeral=True, delete_after=5)
         except Exception:
             pass
 
@@ -2043,7 +2110,7 @@ class ReenviarQrPixView(discord.ui.View):
             await interaction.response.send_message(
                 "Apenas o Middle deste ticket pode clicar neste botão.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
 
@@ -2053,14 +2120,14 @@ class ReenviarQrPixView(discord.ui.View):
             await interaction.response.send_message(
                 "Esta etapa já foi processada.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
         if self.modo not in {"taxa_comprador", "taxa_vendedor"}:
             await interaction.response.send_message(
                 "Modo de reenvio inválido.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
 
@@ -2081,7 +2148,7 @@ class ReenviarQrPixView(discord.ui.View):
         except Exception:
             pass
 
-        await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True)
+        await interaction.followup.send("✅ QR reenviado com sucesso.", ephemeral=True, delete_after=5)
 
 
 class PixCopiaColaView(discord.ui.View):
@@ -2118,7 +2185,7 @@ class TaxaView(discord.ui.View):
             mensagem,
             cor=cor_paleta("destaque")
         )
-        await interaction.response.send_message("Taxa definida.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("Taxa definida.", ephemeral=True, delete_after=5)
         self.stop()
 
     @discord.ui.button(label="Comprador paga", style=ESTILO_BOTAO["sucesso"])
@@ -2131,14 +2198,14 @@ class TaxaView(discord.ui.View):
             await interaction.response.send_message(
                 "Esta etapa já foi processada.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
 
         if interaction.user != self.comprador:
             await interaction.response.send_message(
                 "Somente o comprador pode escolher quem paga a taxa.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
         if estado:
@@ -2200,14 +2267,14 @@ class TaxaView(discord.ui.View):
             await interaction.response.send_message(
                 "Esta etapa já foi processada.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
 
         if interaction.user != self.comprador:
             await interaction.response.send_message(
                 "Somente o comprador pode escolher quem paga a taxa.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
         if estado:
@@ -2288,7 +2355,7 @@ class ConfirmarPagamentoView(discord.ui.View):
             if interaction.user.id != middle_id:
                 await interaction.response.send_message(
                     "Apenas o Middle pode confirmar o pagamento.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
                 return
 
@@ -2297,7 +2364,7 @@ class ConfirmarPagamentoView(discord.ui.View):
                 await interaction.response.send_message(
                     "Esta etapa já foi processada.",
                     ephemeral=True,
-                    delete_after=60
+                    delete_after=5
                 )
                 return
             if estado:
@@ -2337,7 +2404,7 @@ class ConfirmarEntregaView(discord.ui.View):
             if interaction.user != self.comprador:
                 await interaction.response.send_message(
                     "Apenas o comprador pode confirmar.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
                 return
             estado = _estado_negociacao(self.canal.id)
@@ -2345,7 +2412,7 @@ class ConfirmarEntregaView(discord.ui.View):
                 await interaction.response.send_message(
                     "Esta etapa já foi processada.",
                     ephemeral=True,
-                    delete_after=60
+                    delete_after=5
                 )
                 return
             if estado:
@@ -2378,7 +2445,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
         if estado and estado.get("etapa") != "aguardando_envio_pix_vendedor":
             await interaction.response.send_message(
                 "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -2391,7 +2458,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
         if estado:
             estado["etapa"] = "aguardando_confirmacao_recebimento_vendedor"
 
-        await interaction.response.send_message("Pix enviado.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("Pix enviado.", ephemeral=True, delete_after=5)
 
 class EnviarPixView(discord.ui.View):
     def __init__(self, canal, vendedor):
@@ -2405,7 +2472,7 @@ class EnviarPixView(discord.ui.View):
         if interaction.user != self.vendedor:
             await interaction.response.send_message(
                 "Somente o vendedor pode enviar Pix.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -2413,7 +2480,7 @@ class EnviarPixView(discord.ui.View):
         if estado and estado.get("etapa") != "aguardando_envio_pix_vendedor":
             await interaction.response.send_message(
                 "Esta etapa já foi processada.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -2439,7 +2506,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
             if interaction.user != self.vendedor:
                 await interaction.response.send_message(
                     "Somente vendedor confirma.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
                 return
 
@@ -2448,7 +2515,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
                 await interaction.response.send_message(
                     "Esta etapa já foi processada.",
                     ephemeral=True,
-                    delete_after=60
+                    delete_after=5
                 )
                 return
             if estado:
@@ -2486,13 +2553,13 @@ class FecharTicketView(discord.ui.View):
                 msg_permissao = "Apenas o Middle que assumiu o ticket ou um administrador pode fechar."
             await interaction.response.send_message(
                 msg_permissao,
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
         await interaction.response.send_message(
             texto_inicio,
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
 
         canal_id = self.canal.id
@@ -2727,7 +2794,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
             if interaction.user != self.vendedor:
                 await interaction.response.send_message(
                     "Somente o vendedor confirma o valor.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
                 return
             self.valor_confirmado = True
@@ -2756,7 +2823,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
             if interaction.user != self.comprador:
                 await interaction.response.send_message(
                     "Somente o comprador confirma o item.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
                 return
             self.brainrot_confirmado = True
@@ -2786,7 +2853,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
                 await interaction.response.send_message(
                     "Somente comprador ou vendedor podem usar este botão.",
                     ephemeral=True,
-                    delete_after=60
+                    delete_after=5
                 )
                 return
 
@@ -2795,7 +2862,7 @@ class ConfirmarNegociacaoView(discord.ui.View):
                 await interaction.response.send_message(
                     "Esta etapa já foi processada. Não é possível voltar agora.",
                     ephemeral=True,
-                    delete_after=60
+                    delete_after=5
                 )
                 return
 
@@ -2823,16 +2890,16 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         try:
             valor = float(self.valor.value.replace(",", "."))
         except ValueError:
-            await interaction.response.send_message("Valor inválido.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Valor inválido.", ephemeral=True, delete_after=5)
             return
 
         if valor <= 0:
-            await interaction.response.send_message("Informe um valor maior que zero.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Informe um valor maior que zero.", ephemeral=True, delete_after=5)
             return
         if valor > VALOR_MAXIMO_OPERACAO:
             await interaction.response.send_message(
                 f"Valor muito alto. Limite permitido: R$ {VALOR_MAXIMO_OPERACAO:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -2844,14 +2911,14 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
             await interaction.response.send_message(
                 "Esta etapa já foi concluída. Siga o fluxo atual do ticket.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
         if estado.get("confirm_msg_id"):
             await interaction.response.send_message(
                 "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
         estado["valor"] = valor
@@ -2865,7 +2932,7 @@ class ValorModal(discord.ui.Modal, title="Valor da negociação"):
         if self.origem_view is not None:
             await self.origem_view.marcar_valor_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
-        await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("Valor salvo.", ephemeral=True, delete_after=5)
 
 
 class BrainrotNomeModal(discord.ui.Modal, title="Item da negociação"):
@@ -2881,7 +2948,7 @@ class BrainrotNomeModal(discord.ui.Modal, title="Item da negociação"):
     async def on_submit(self, interaction):
         nome = self.brainrot_nome.value.strip()
         if not nome:
-            await interaction.response.send_message("Informe um nome de item válido.", ephemeral=True, delete_after=60)
+            await interaction.response.send_message("Informe um nome de item válido.", ephemeral=True, delete_after=5)
             return
 
         estado = _estado_negociacao(self.canal.id)
@@ -2892,14 +2959,14 @@ class BrainrotNomeModal(discord.ui.Modal, title="Item da negociação"):
             await interaction.response.send_message(
                 "Esta etapa já foi concluída. Siga o fluxo atual do ticket.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
         if estado.get("confirm_msg_id"):
             await interaction.response.send_message(
                 "A confirmação da negociação já foi enviada. Use os botões de confirmação.",
                 ephemeral=True,
-                delete_after=60
+                delete_after=5
             )
             return
         estado["brainrot_nome"] = nome
@@ -2913,7 +2980,7 @@ class BrainrotNomeModal(discord.ui.Modal, title="Item da negociação"):
         if self.origem_view is not None:
             await self.origem_view.marcar_brainrot_preenchido()
         await tentar_publicar_confirmacao_negociacao(self.canal)
-        await interaction.response.send_message("Item salvo.", ephemeral=True, delete_after=60)
+        await interaction.response.send_message("Item salvo.", ephemeral=True, delete_after=5)
 
 
 class NegociacaoDadosView(discord.ui.View):
@@ -2964,7 +3031,7 @@ class NegociacaoDadosView(discord.ui.View):
         if interaction.user != self.comprador:
             await interaction.response.send_message(
                 "Somente o comprador pode informar o valor.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
         await interaction.response.send_modal(
@@ -2976,7 +3043,7 @@ class NegociacaoDadosView(discord.ui.View):
         if interaction.user != self.vendedor:
             await interaction.response.send_message(
                 "Somente o vendedor pode informar o item.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
         await interaction.response.send_modal(
@@ -3016,14 +3083,14 @@ class MiddlemanAcceptView(discord.ui.View):
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
                         "Este ticket não existe mais. Mensagem de aceite removida.",
-                        ephemeral=True, delete_after=60
+                        ephemeral=True, delete_after=5
                     )
                 return
 
             role = get_middle_role(interaction.guild)
 
             if role not in interaction.user.roles:
-                await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=60)
+                await interaction.response.send_message("Você não é MM.", ephemeral=True, delete_after=5)
                 return
 
             middle_existente = ticket_middleman.get(self.canal.id)
@@ -3033,13 +3100,13 @@ class MiddlemanAcceptView(discord.ui.View):
                     await interaction.response.send_message(
                         f"Este ticket já foi aceito por {membro_existente.mention}.",
                         ephemeral=True,
-                        delete_after=60
+                        delete_after=5
                     )
                 else:
                     await interaction.response.send_message(
                         "Este ticket já foi aceito por outro Middle.",
                         ephemeral=True,
-                        delete_after=60
+                        delete_after=5
                     )
                 return
 
@@ -3225,14 +3292,14 @@ class CompraVendaSetupView(discord.ui.View):
         if interaction.user != self.criador:
             await interaction.response.send_message(
                 "Somente quem abriu o ticket pode escolher.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
         if self.escolha_feita:
             await interaction.response.send_message(
                 "Escolha já foi feita.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -3252,7 +3319,7 @@ class CompraVendaSetupView(discord.ui.View):
 
         await interaction.response.send_message(
             "Escolha vendedor.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
 
         await self.message.edit(view=self)
@@ -3266,14 +3333,14 @@ class CompraVendaSetupView(discord.ui.View):
         if interaction.user != self.criador:
             await interaction.response.send_message(
                 "Somente quem abriu o ticket pode escolher.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
         if self.escolha_feita:
             await interaction.response.send_message(
                 "Escolha já foi feita.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -3293,7 +3360,7 @@ class CompraVendaSetupView(discord.ui.View):
 
         await interaction.response.send_message(
             "Escolha comprador.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
 
         await self.message.edit(view=self)
@@ -3304,7 +3371,7 @@ class CompraVendaSetupView(discord.ui.View):
         if membro is None:
             await interaction.response.send_message(
                 "Não consegui localizar esse membro no servidor.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -3319,7 +3386,7 @@ class CompraVendaSetupView(discord.ui.View):
 
         await interaction.response.send_message(
             "Vendedor definido.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
 
         await self.finalizar(interaction)
@@ -3330,7 +3397,7 @@ class CompraVendaSetupView(discord.ui.View):
         if membro is None:
             await interaction.response.send_message(
                 "Não consegui localizar esse membro no servidor.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
@@ -3345,7 +3412,7 @@ class CompraVendaSetupView(discord.ui.View):
 
         await interaction.response.send_message(
             "Comprador definido.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
 
         await self.finalizar(interaction)
@@ -3550,12 +3617,12 @@ class TicketView(discord.ui.View):
             if interaction.response.is_done():
                 await interaction.followup.send(
                     "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
             else:
                 await interaction.response.send_message(
                     "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=60
+                    ephemeral=True, delete_after=5
                 )
             return
 
@@ -3675,14 +3742,14 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
     if role not in interaction.user.roles:
         await interaction.response.send_message(
             "Apenas quem tem o cargo de Middle configurado pode usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     if not validar_chave_pix(chave):
         await interaction.response.send_message(
             "❌ Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória válida.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3690,7 +3757,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 
     await interaction.response.send_message(
         f"✅ Chave Pix e nome atualizados {interaction.user.mention}",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 @bot.tree.command(name="painel1", description="Enviar painel de tickets")
@@ -3698,7 +3765,7 @@ async def painel1(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3712,7 +3779,7 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3723,13 +3790,13 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
     except discord.Forbidden:
         await interaction.response.send_message(
             "Não tenho permissão para enviar mensagem nesse canal.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     await interaction.response.send_message(
         f"✅ Painel configurado com sucesso em {canal.mention}.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 @bot.tree.command(name="setimgp", description="Define a imagem do painel por URL")
@@ -3737,14 +3804,14 @@ async def setimgp(interaction: discord.Interaction, url: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     if not validar_url_imagem(url):
         await interaction.response.send_message(
             "URL inválida. Envie uma URL iniciando com http:// ou https://",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3768,19 +3835,19 @@ async def setimgp(interaction: discord.Interaction, url: str):
         except discord.Forbidden:
             await interaction.response.send_message(
                 "Imagem salva, mas não tenho permissão para atualizar o painel no canal configurado.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
         except discord.HTTPException:
             await interaction.response.send_message(
                 "Imagem salva, mas falhou ao atualizar o painel agora.",
-                ephemeral=True, delete_after=60
+                ephemeral=True, delete_after=5
             )
             return
 
     await interaction.response.send_message(
         "✅ Imagem do painel atualizada para este servidor.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 @bot.tree.command(name="setaceite", description="Define o canal de pedidos para os middleman")
@@ -3788,7 +3855,7 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3796,7 +3863,7 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
 
     await interaction.response.send_message(
         f"✅ Canal de aceite configurado com sucesso em {canal.mention}.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -3805,14 +3872,14 @@ async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     set_middle_role_id(interaction.guild.id, cargo.id)
     await interaction.response.send_message(
         f"✅ Cargo de Middle configurado para {cargo.mention}.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -3821,14 +3888,14 @@ async def setcmiddle(interaction: discord.Interaction, categoria: discord.Catego
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     set_middle_category_id(interaction.guild.id, categoria.id)
     await interaction.response.send_message(
         f"✅ Categoria de tickets configurada para **{categoria.name}**.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -3841,14 +3908,14 @@ async def setnvl(interaction: discord.Interaction, cargo: discord.Role, valor: f
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     if valor < 0:
         await interaction.response.send_message(
             "O valor mínimo não pode ser negativo.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3864,7 +3931,7 @@ async def setnvl(interaction: discord.Interaction, cargo: discord.Role, valor: f
 
     await interaction.response.send_message(
         f"✅ Nível atualizado: {cargo.mention} em **R$ {valor:.2f}**.\n\n**Níveis deste servidor:**\n{resumo}",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -3873,7 +3940,7 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -3891,14 +3958,14 @@ async def setlogadmin(interaction: discord.Interaction, canal: discord.TextChann
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     set_log_admin_canal(interaction.guild.id, canal.id)
     await interaction.response.send_message(
         f"✅ Canal de log administrativo configurado em {canal.mention}.",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -3938,7 +4005,7 @@ async def infocanal(interaction: discord.Interaction):
     embed.add_field(name="Logs Admin (/setlogadmin)", value=_fmt_canal_configurado(guild, logs_admin_id), inline=False)
     embed.add_field(name="Categoria Middle (/setcmiddle)", value=_fmt_canal_configurado(guild, categoria_middle_id), inline=False)
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
 
 
 @bot.tree.command(name="helpb", description="Mostra a lista de comandos do bot e permissões")
@@ -3984,7 +4051,7 @@ async def helpb(interaction: discord.Interaction):
         inline=False
     )
     embed.set_footer(text="Permissões válidas por servidor.")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
 
 
 @bot.tree.command(name="fn", description="Finaliza o ticket atual e gera os logs")
@@ -3992,7 +4059,7 @@ async def fn(interaction: discord.Interaction):
     if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
         await interaction.response.send_message(
             "Este comando só pode ser usado dentro de um ticket no servidor.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4000,7 +4067,7 @@ async def fn(interaction: discord.Interaction):
     if canal.id not in ticket_type:
         await interaction.response.send_message(
             "Este comando só pode ser usado em um ticket ativo.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4008,13 +4075,13 @@ async def fn(interaction: discord.Interaction):
     if middle_id is None:
         await interaction.response.send_message(
             "Este ticket ainda não foi assumido por um Middle.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
     if interaction.user.id != middle_id:
         await interaction.response.send_message(
             "Apenas o Middle que assumiu este ticket pode usar /fn.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4052,14 +4119,14 @@ async def settaxa(
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     if valor < 0:
         await interaction.response.send_message(
             "O valor da taxa não pode ser negativo.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4069,7 +4136,7 @@ async def settaxa(
 
     await interaction.response.send_message(
         f"✅ Taxa atualizada: **{faixa.name}** = `{valor}`",
-        ephemeral=True, delete_after=60
+        ephemeral=True, delete_after=5
     )
 
 
@@ -4083,14 +4150,14 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     if not (is_middle or is_admin):
         await interaction.response.send_message(
             "Apenas administradores ou quem tem o cargo de Middle configurado pode usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
     if valor <= 0:
         await interaction.response.send_message(
             "Informe um valor maior que zero.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4100,13 +4167,13 @@ async def cobrar(interaction: discord.Interaction, valor: float):
     if not pix_key:
         await interaction.response.send_message(
             "Você ainda não cadastrou sua chave Pix. Use `/setpix` primeiro.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
     if not validar_chave_pix(pix_key):
         await interaction.response.send_message(
             "Sua chave PIX cadastrada é inválida. Atualize com `/setpix`.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4139,7 +4206,7 @@ async def mmt(interaction: discord.Interaction):
     if not (is_middle or is_admin):
         await interaction.response.send_message(
             "Apenas administradores ou quem tem o cargo de Middle configurado pode usar este comando.",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4147,7 +4214,7 @@ async def mmt(interaction: discord.Interaction):
     if not ranking:
         await interaction.response.send_message(
             "Nenhuma taxa registrada hoje (horário de Brasília).",
-            ephemeral=True, delete_after=60
+            ephemeral=True, delete_after=5
         )
         return
 
@@ -4227,3 +4294,4 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
+
