@@ -3533,9 +3533,19 @@ class TicketView(discord.ui.View):
                 interaction.user.id
             )
             try:
-                await interaction.user.send(embed=embed)
+                if isinstance(interaction.channel, discord.TextChannel):
+                    await interaction.channel.send(
+                        content=interaction.user.mention,
+                        embed=embed,
+                        view=link_view,
+                        delete_after=15
+                    )
             except Exception:
-                pass
+                logger.exception(
+                    "Falha ao enviar confirmacao fallback no canal do painel channel_id=%s user_id=%s",
+                    interaction.channel.id if interaction.channel else "desconhecido",
+                    interaction.user.id
+                )
 
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
