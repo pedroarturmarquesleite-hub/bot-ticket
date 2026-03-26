@@ -62,6 +62,12 @@ TAXA_PADRAO = {
     "acima_100_fixo": 2.85,
     "ate_100_fixo": 2.00
 }
+TAXA_CROSS_PADRAO = {
+    "acima_700_percentual": 0.017,
+    "acima_400_fixo": 9.95,
+    "acima_200_fixo": 6.70,
+    "minimo_fixo": 4.95,
+}
 VALOR_MAXIMO_OPERACAO = 1_000_000.0
 COOLDOWN_ABRIR_TICKET_SEGUNDOS = 15
 COOLDOWN_CLIQUE_CRITICO_SEGUNDOS = 3
@@ -323,7 +329,7 @@ def carregar_estado_tickets():
         canal_int = _id_int(canal_id)
         if canal_int is None:
             continue
-        if kind in {"pix"}:
+        if kind in {"pix", "cross_trade"}:
             types[canal_int] = kind
 
     return {
@@ -574,7 +580,7 @@ async def enviar_log_fechamento_ticket(guild, canal):
         if valor_negociado is not None:
             valor_negociado_num = valor_negociado
             valor_item_txt = f"R$ {valor_negociado:.2f}"
-            valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id))
+            valor_taxa_num = float(calcular_taxa(valor_negociado, guild.id, tipo))
             valor_taxa_txt = f"R$ {valor_taxa_num:.2f}"
 
     if middle_id is not None and valor_taxa_num is not None and valor_taxa_num > 0:
@@ -1573,6 +1579,10 @@ def criar_embed_painel(guild_id=None):
     taxa_200 = float(cfg["acima_200_fixo"])
     taxa_400 = float(cfg["acima_400_fixo"])
     taxa_700_pct = float(cfg["acima_700_percentual"]) * 100
+    cross_8 = float(TAXA_CROSS_PADRAO["minimo_fixo"])
+    cross_200 = float(TAXA_CROSS_PADRAO["acima_200_fixo"])
+    cross_400 = float(TAXA_CROSS_PADRAO["acima_400_fixo"])
+    cross_700_pct = float(TAXA_CROSS_PADRAO["acima_700_percentual"]) * 100
 
     embed = discord.Embed(
         title="🔥 Sistema de Tickets 🔄",
@@ -1584,6 +1594,11 @@ def criar_embed_painel(guild_id=None):
             f"- *R$ {taxa_200:.2f} acima de R$ 200,00*\n"
             f"- *R$ {taxa_400:.2f} acima de R$ 400,00*\n"
             f"- *{taxa_700_pct:.2f}% acima de R$ 700,00*\n\n"
+            "**Taxa sobre Cross Trade**\n\n"
+            f"- *R$ {cross_8:.2f} acima de R$ 8,00*\n"
+            f"- *R$ {cross_200:.2f} acima de R$ 200,00*\n"
+            f"- *R$ {cross_400:.2f} acima de R$ 400,00*\n"
+            f"- *{cross_700_pct:.2f}% acima de R$ 700,00*\n\n"
             "Clique abaixo para abrir um ticket."
         ),
         color=cor_paleta("info")
@@ -1599,7 +1614,19 @@ def criar_embed_painel(guild_id=None):
     return embed
 
 # ---------- TAXA DINÂMICA ----------
-def calcular_taxa(valor, guild_id=None):
+def calcular_taxa(valor, guild_id=None, ticket_kind="pix"):
+    if ticket_kind == "cross_trade":
+        cfg = TAXA_CROSS_PADRAO
+        if valor > 700:
+            return valor * float(cfg["acima_700_percentual"])
+        elif valor > 400:
+            return float(cfg["acima_400_fixo"])
+        elif valor > 200:
+            return float(cfg["acima_200_fixo"])
+        elif valor > 8:
+            return float(cfg["minimo_fixo"])
+        return float(cfg["minimo_fixo"])
+
     cfg = carregar_taxa_config(guild_id)
     if valor > 700:
         return valor * float(cfg["acima_700_percentual"])
@@ -1765,7 +1792,8 @@ class botd(discord.Client):
             )
             return
 
-        tipo_middle = "Taxa Pix"
+        ticket_kind = ticket_type.get(canal.id, "pix")
+        tipo_middle = "Cross Trade" if ticket_kind == "cross_trade" else "Taxa Pix"
         role_middle = get_middle_role(canal.guild)
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
@@ -1796,7 +1824,7 @@ class botd(discord.Client):
             cor=cor_paleta("primario")
         )
 
-        if kind == "pix":
+        if kind in {"pix", "cross_trade"}:
             partes = obter_partes_ticket(canal)
             if not partes:
                 criador = self._detectar_criador_ticket(canal)
@@ -2071,10 +2099,11 @@ class PixCopiaColaView(discord.ui.View):
 
 # ---------- TAXA VIEW ----------
 class TaxaView(discord.ui.View):
-    def __init__(self, valor, comprador, vendedor, guild_id=None):
+    def __init__(self, valor, comprador, vendedor, guild_id=None, ticket_kind="pix"):
         super().__init__(timeout=None)
         self.valor = valor
-        self.taxa = calcular_taxa(valor, guild_id)
+        self.ticket_kind = ticket_kind
+        self.taxa = calcular_taxa(valor, guild_id, ticket_kind)
         self.comprador = comprador
         self.vendedor = vendedor
         self.guild_id = guild_id
@@ -2567,7 +2596,8 @@ async def tentar_publicar_confirmacao_negociacao(canal):
     vendedor = parties["vendedor"]
     valor = float(estado["valor"])
     brainrot_nome = estado["brainrot_nome"]
-    taxa = calcular_taxa(valor, canal.guild.id)
+    ticket_kind = ticket_type.get(canal.id, "pix")
+    taxa = calcular_taxa(valor, canal.guild.id, ticket_kind)
 
     descricao = (
         f"**Item informado por {vendedor.mention}:** `{brainrot_nome}`\n"
@@ -2644,7 +2674,13 @@ class ConfirmarNegociacaoView(discord.ui.View):
         await enviar_fluxo(
             self.canal,
             f"💸 {self.comprador.mention}, informe quem irá pagar a taxa para o Middle Man.",
-            view=TaxaView(self.valor, self.comprador, self.vendedor, self.canal.guild.id),
+            view=TaxaView(
+                self.valor,
+                self.comprador,
+                self.vendedor,
+                self.canal.guild.id,
+                ticket_type.get(self.canal.id, "pix")
+            ),
             cor=cor_paleta("aviso")
         )
         self.stop()
@@ -3390,7 +3426,8 @@ class TicketView(discord.ui.View):
             )
             return
 
-        tipo_middle = "Taxa Pix"
+        ticket_kind = ticket_type.get(canal.id, "pix")
+        tipo_middle = "Cross Trade" if ticket_kind == "cross_trade" else "Taxa Pix"
         role_middle = get_middle_role(canal.guild)
         mencao_middle = role_middle.mention if role_middle else "@Middle Man"
         try:
@@ -3508,7 +3545,7 @@ class TicketView(discord.ui.View):
         )
         view_dados.message = msg_dados
 
-    async def criar_ticket_middleman_pix(self, interaction):
+    async def criar_ticket_middleman(self, interaction, ticket_kind="pix"):
         if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
             if interaction.response.is_done():
                 await interaction.followup.send(
@@ -3537,7 +3574,7 @@ class TicketView(discord.ui.View):
             overwrites=overwrites,
             category=await self.obter_ou_criar_categoria_middle(interaction.guild)
         )
-        salvar_tipo_ticket(canal.id, "pix")
+        salvar_tipo_ticket(canal.id, ticket_kind)
         salvar_criador_ticket(canal.id, interaction.user.id)
         aviso = discord.Embed(
             title="📢 LEIA COM ATENÇÃO",
@@ -3574,7 +3611,7 @@ class TicketView(discord.ui.View):
         )
         await canal.send(embed=aviso_comprovacao)
 
-        await self._avisar_middles_no_canal(canal, ticket_kind="pix")
+        await self._avisar_middles_no_canal(canal, ticket_kind=ticket_kind)
         view = CompraVendaSetupView(canal, interaction.user)
         msg = await enviar_fluxo(
             canal,
@@ -3595,7 +3632,39 @@ class TicketView(discord.ui.View):
     async def abrir(self, interaction, button):
         if await em_cooldown(interaction, "abrir_ticket_middle", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
             return
-        await self.criar_ticket_middleman_pix(interaction)
+        await interaction.response.send_message(
+            embed=embed_fluxo(
+                "Escolha o tipo de ticket para continuar:",
+                titulo="Tipo de Ticket",
+                cor=cor_paleta("aviso")
+            ),
+            view=EscolhaTipoTicketView(self),
+            ephemeral=True
+        )
+
+    async def criar_ticket_middleman_pix(self, interaction):
+        await self.criar_ticket_middleman(interaction, ticket_kind="pix")
+
+    async def criar_ticket_middleman_cross(self, interaction):
+        await self.criar_ticket_middleman(interaction, ticket_kind="cross_trade")
+
+
+class EscolhaTipoTicketView(discord.ui.View):
+    def __init__(self, ticket_view: TicketView):
+        super().__init__(timeout=120)
+        self.ticket_view = ticket_view
+
+    @discord.ui.button(label="Ticket Padrão", style=ESTILO_BOTAO["sucesso"])
+    async def ticket_padrao(self, interaction, button):
+        if await em_cooldown(interaction, "abrir_ticket_padrao", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
+            return
+        await self.ticket_view.criar_ticket_middleman_pix(interaction)
+
+    @discord.ui.button(label="Ticket Cross Trade", style=ESTILO_BOTAO["primario"])
+    async def ticket_cross(self, interaction, button):
+        if await em_cooldown(interaction, "abrir_ticket_cross", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
+            return
+        await self.ticket_view.criar_ticket_middleman_cross(interaction)
 
 
 bot = botd()
