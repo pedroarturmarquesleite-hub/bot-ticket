@@ -5,3 +5,5 @@ __pycache__/
 *.pyd
 logs/
 .env
+__pycache__/
+*.pyc
