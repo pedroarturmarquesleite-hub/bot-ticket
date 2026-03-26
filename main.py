@@ -3512,30 +3512,25 @@ class TicketView(discord.ui.View):
         )
 
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    embed=embed,
-                    view=link_view,
-                    ephemeral=True,
-                    delete_after=15
-                )
-                return
-
-            try:
-                await interaction.response.send_message(
-                    embed=embed,
-                    view=link_view,
-                    ephemeral=True,
-                    delete_after=15
-                )
-            except Exception:
-                await interaction.followup.send(
-                    embed=embed,
-                    view=link_view,
-                    ephemeral=True,
-                    delete_after=15
-                )
+            await interaction.followup.send(
+                embed=embed,
+                view=link_view,
+                ephemeral=True,
+                delete_after=15
+            )
+            return
         except Exception:
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        embed=embed,
+                        view=link_view,
+                        ephemeral=True,
+                        delete_after=15
+                    )
+                    return
+            except Exception:
+                pass
             logger.exception(
                 "Falha ao enviar confirmacao de abertura de ticket canal_id=%s user_id=%s",
                 canal.id,
