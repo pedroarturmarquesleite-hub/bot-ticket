@@ -3519,8 +3519,17 @@ class TicketView(discord.ui.View):
                     ephemeral=True,
                     delete_after=15
                 )
-            else:
+                return
+
+            try:
                 await interaction.response.send_message(
+                    embed=embed,
+                    view=link_view,
+                    ephemeral=True,
+                    delete_after=15
+                )
+            except Exception:
+                await interaction.followup.send(
                     embed=embed,
                     view=link_view,
                     ephemeral=True,
@@ -3532,7 +3541,6 @@ class TicketView(discord.ui.View):
                 canal.id,
                 interaction.user.id
             )
-            # Sem fallback no canal para evitar expor a mensagem a todos.
             return
 
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
