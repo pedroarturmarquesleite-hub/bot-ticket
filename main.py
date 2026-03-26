@@ -3512,6 +3512,15 @@ class TicketView(discord.ui.View):
         )
 
         try:
+            try:
+                await interaction.edit_original_response(
+                    embed=embed,
+                    view=link_view
+                )
+                return
+            except Exception:
+                pass
+
             await interaction.followup.send(
                 embed=embed,
                 view=link_view,
