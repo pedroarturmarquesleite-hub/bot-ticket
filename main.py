@@ -47,6 +47,9 @@ USER_PROFILE_METRICS_FILE = os.path.join(APP_DATA_DIR, "user_profile_metrics.jso
 SETTINGS_DB_FILE = os.path.join(APP_DATA_DIR, "bot_settings.db")
 LOGS_DIR = os.path.join(APP_DATA_DIR, "logs")
 LOGS_FILE = os.path.join(LOGS_DIR, "bot.log")
+SQLITE_TIMEOUT_SECONDS = 30
+SQLITE_BUSY_TIMEOUT_MS = 30000
+MEMORY_CLEANUP_INTERVAL_SECONDS = 300
 PANEL_DEFAULT_IMAGE_URL = (
     "https://media.discordapp.net/attachments/1359946778480218176/"
     "1472704120228938007/content.png?ex=69938a17&is=69923897&"
@@ -143,6 +146,14 @@ def setup_logger():
 
 
 logger = setup_logger()
+
+
+def sqlite_connect():
+    conn = sqlite3.connect(SETTINGS_DB_FILE, timeout=SQLITE_TIMEOUT_SECONDS)
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
 
 
 async def em_cooldown(interaction: discord.Interaction, action: str, segundos: int) -> bool:
@@ -810,7 +821,7 @@ def _load_json_file(path):
 
 
 def init_settings_db():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS guild_settings (
@@ -901,7 +912,7 @@ def init_settings_db():
 
 
 def migrate_json_configs_to_db():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             "SELECT value FROM migration_meta WHERE key = 'json_to_sqlite_v1'"
         ).fetchone()
@@ -1022,7 +1033,7 @@ def migrate_json_configs_to_db():
 
 
 def migrate_json_metrics_to_db():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             "SELECT value FROM migration_meta WHERE key = 'json_metrics_to_sqlite_v1'"
         ).fetchone()
@@ -1126,7 +1137,7 @@ def migrate_json_metrics_to_db():
 
 
 def carregar_painel_config():
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
@@ -1147,7 +1158,7 @@ def carregar_painel_config():
 def salvar_painel_config(data):
     if not isinstance(data, dict):
         return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         for guild_key, entry in data.items():
             guild_id = _id_int(guild_key)
             if guild_id is None:
@@ -1184,7 +1195,7 @@ def _set_guild_setting(guild_id, column, value):
         "middle_category_id",
     }:
         return
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             f"""
             INSERT INTO guild_settings (guild_id, {column})
@@ -1200,7 +1211,7 @@ def _set_guild_setting(guild_id, column, value):
 def _get_guild_setting(guild_id, column):
     if _id_int(guild_id) is None:
         return None
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             f"SELECT {column} FROM guild_settings WHERE guild_id = ?",
             (int(guild_id),)
@@ -1292,7 +1303,7 @@ def get_middle_category_id(guild_id):
 
 def get_levels_guild(guild_id):
     raw = []
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT role_id, min_total FROM guild_levels WHERE guild_id = ? ORDER BY min_total ASC",
@@ -1318,7 +1329,7 @@ def get_levels_guild(guild_id):
 
 
 def set_level_guild(guild_id, role_id, min_total):
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             INSERT INTO guild_levels (guild_id, role_id, min_total)
@@ -1339,7 +1350,7 @@ def adicionar_gasto_usuario(guild_id, user_id, valor):
         incremento = 0.0
 
     agora = int(discord.utils.utcnow().timestamp())
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             INSERT INTO user_spending (guild_id, user_id, total_spent, updated_ts)
@@ -1359,7 +1370,7 @@ def adicionar_gasto_usuario(guild_id, user_id, valor):
 
 
 def obter_gasto_usuario(guild_id, user_id):
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             "SELECT total_spent FROM user_spending WHERE guild_id = ? AND user_id = ?",
             (int(guild_id), int(user_id))
@@ -1381,7 +1392,7 @@ def registrar_user_intermediacao(guild_id, user_id, valor_total):
         return
 
     agora = int(discord.utils.utcnow().timestamp())
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             INSERT INTO user_profile_metrics (guild_id, user_id, total_intermedios, maior_transacao, updated_ts)
@@ -1397,7 +1408,7 @@ def registrar_user_intermediacao(guild_id, user_id, valor_total):
 
 
 def obter_user_profile_metrics(guild_id, user_id):
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             """
             SELECT total_intermedios, maior_transacao
@@ -1500,7 +1511,7 @@ def registrar_mm_taxa(guild_id, middle_id, valor_taxa):
 
     agora = int(discord.utils.utcnow().timestamp())
     limite = agora - (30 * 24 * 60 * 60)
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             INSERT INTO mm_taxa_events (guild_id, middle_id, valor_taxa, ts)
@@ -1535,7 +1546,7 @@ def ranking_mm_taxa_por_data(guild_id, data_brt_ref):
     inicio_ts, fim_ts = _intervalo_dia_brt_em_ts(data_brt_ref)
     agora = int(discord.utils.utcnow().timestamp())
     limite = agora - (30 * 24 * 60 * 60)
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         rows = conn.execute(
             """
             SELECT middle_id, SUM(valor_taxa) AS total
@@ -1563,7 +1574,7 @@ def ranking_mm_taxa_por_data(guild_id, data_brt_ref):
 
 def get_ultimo_envio_ranking_diario(guild_id):
     key = f"daily_rank_sent_{int(guild_id)}"
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         row = conn.execute(
             "SELECT value FROM migration_meta WHERE key = ?",
             (key,)
@@ -1575,7 +1586,7 @@ def get_ultimo_envio_ranking_diario(guild_id):
 
 def set_ultimo_envio_ranking_diario(guild_id, data_iso):
     key = f"daily_rank_sent_{int(guild_id)}"
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         conn.execute(
             """
             INSERT INTO migration_meta (key, value)
@@ -1599,7 +1610,7 @@ def carregar_taxa_config(guild_id=None):
         return TAXA_PADRAO.copy()
 
     cfg = TAXA_PADRAO.copy()
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         rows = conn.execute(
             "SELECT faixa, valor FROM guild_taxa WHERE guild_id = ?",
             (int(guild_id),)
@@ -1619,7 +1630,7 @@ def carregar_taxa_config(guild_id=None):
 
 def salvar_taxa_config_guild(guild_id, cfg):
     cfg_norm = _normalizar_taxa_config(cfg)
-    with sqlite3.connect(SETTINGS_DB_FILE) as conn:
+    with sqlite_connect() as conn:
         for faixa, valor in cfg_norm.items():
             conn.execute(
                 """
@@ -1715,6 +1726,7 @@ class botd(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self._painel_inicializado = False
         self._daily_ranking_task = None
+        self._memory_cleanup_task = None
 
     async def setup_hook(self):
         self.tree.on_error = self.on_app_command_error
@@ -1803,6 +1815,66 @@ class botd(discord.Client):
             except Exception:
                 logger.exception("Falha no loop de ranking diario")
                 await asyncio.sleep(30)
+
+    async def _limpeza_memoria(self):
+        now = time.monotonic()
+        removidos_cooldown = 0
+        for key, exp in list(cooldown_user_actions.items()):
+            if exp <= now:
+                cooldown_user_actions.pop(key, None)
+                removidos_cooldown += 1
+
+        todos_ids = set(ticket_type.keys()) | set(ticket_loading_msg.keys()) | set(ticket_negociacao.keys()) | set(ticket_operation_locks.keys())
+        removidos_orfaos = 0
+        for canal_id in list(todos_ids):
+            canal = self.get_channel(canal_id)
+            if isinstance(canal, discord.TextChannel):
+                continue
+            try:
+                canal = await self._buscar_canal_texto(canal_id)
+            except Exception:
+                canal = None
+            if isinstance(canal, discord.TextChannel):
+                continue
+
+            ticket_loading_msg.pop(canal_id, None)
+            ticket_type.pop(canal_id, None)
+            ticket_middleman.pop(canal_id, None)
+            ticket_parties.pop(canal_id, None)
+            ticket_creator.pop(canal_id, None)
+            ticket_negociacao.pop(canal_id, None)
+            lock = ticket_operation_locks.get(canal_id)
+            if lock is None or (not lock.locked()):
+                ticket_operation_locks.pop(canal_id, None)
+            removidos_orfaos += 1
+
+        removidos_locks = 0
+        for canal_id, lock in list(ticket_operation_locks.items()):
+            if canal_id in ticket_type:
+                continue
+            if lock.locked():
+                continue
+            ticket_operation_locks.pop(canal_id, None)
+            removidos_locks += 1
+
+        if removidos_cooldown or removidos_orfaos or removidos_locks:
+            logger.info(
+                "Limpeza de memoria: cooldown=%s orfaos=%s locks=%s",
+                removidos_cooldown,
+                removidos_orfaos,
+                removidos_locks
+            )
+
+    async def _loop_limpeza_memoria(self):
+        await self.wait_until_ready()
+        while not self.is_closed():
+            try:
+                await self._limpeza_memoria()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Falha no loop de limpeza de memoria")
+            await asyncio.sleep(MEMORY_CLEANUP_INTERVAL_SECONDS)
 
     async def _buscar_canal_texto(self, canal_id: int):
         canal = self.get_channel(canal_id)
@@ -1944,6 +2016,8 @@ class botd(discord.Client):
         logger.info("Bot %s ON", self.user)
         if self._daily_ranking_task is None or self._daily_ranking_task.done():
             self._daily_ranking_task = asyncio.create_task(self._loop_ranking_diario())
+        if self._memory_cleanup_task is None or self._memory_cleanup_task.done():
+            self._memory_cleanup_task = asyncio.create_task(self._loop_limpeza_memoria())
 
         # Tentativa de envio pendente caso tenha reiniciado após a virada.
         try:
@@ -3442,13 +3516,15 @@ class TicketView(discord.ui.View):
                 await interaction.followup.send(
                     embed=embed,
                     view=link_view,
-                    ephemeral=True
+                    ephemeral=True,
+                    delete_after=15
                 )
             else:
                 await interaction.response.send_message(
                     embed=embed,
                     view=link_view,
-                    ephemeral=True
+                    ephemeral=True,
+                    delete_after=15
                 )
         except Exception:
             logger.exception(
@@ -3706,7 +3782,8 @@ class TicketView(discord.ui.View):
                 cor=cor_paleta("aviso")
             ),
             view=EscolhaTipoTicketView(self),
-            ephemeral=True
+            ephemeral=True,
+            delete_after=15
         )
 
     async def criar_ticket_middleman_pix(self, interaction):
@@ -4294,4 +4371,5 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
+
 
