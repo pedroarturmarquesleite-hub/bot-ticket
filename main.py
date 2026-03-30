@@ -1383,6 +1383,27 @@ def obter_gasto_usuario(guild_id, user_id):
         return 0.0
 
 
+def obter_ranking_gastos(guild_id, limite=25):
+    with sqlite_connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT user_id, total_spent
+            FROM user_spending
+            WHERE guild_id = ? AND total_spent > 0
+            ORDER BY total_spent DESC
+            LIMIT ?
+            """,
+            (int(guild_id), int(limite))
+        ).fetchall()
+    ranking = []
+    for user_id, total in rows:
+        try:
+            ranking.append((int(user_id), float(total)))
+        except (TypeError, ValueError):
+            continue
+    return ranking
+
+
 def registrar_user_intermediacao(guild_id, user_id, valor_total):
     try:
         valor = float(valor_total)
@@ -2454,7 +2475,7 @@ class ConfirmarPagamentoView(discord.ui.View):
                 estado["etapa"] = "aguardando_confirmacao_entrega"
             await enviar_fluxo(
                 self.canal,
-                f"📦 {self.comprador.mention}, assim que receber o item confirme que recebeu:",
+                f"📦 {self.comprador.mention}, o Middle Man recebeu o dinhiero,faça a troca do item,\n assim que a troca for concluida clique no botão para confimar o recebimento do item.:",
                 view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
                 cor=cor_paleta("destaque")
             )
@@ -4106,6 +4127,7 @@ async def helpb(interaction: discord.Interaction):
         name="Comandos Gerais",
         value=(
             "`/perfil` — Mostra seu perfil financeiro no servidor. *(Qualquer membro)*\n"
+            "`/rankg` — Ranking dos 25 que mais gastaram. *(Qualquer membro)*\n"
             "`/helpb` — Mostra esta lista de comandos. *(Qualquer membro)*\n"
             "`/infocanal` — Mostra os canais configurados pelos `/set`. *(Qualquer membro)*"
         ),
@@ -4323,7 +4345,8 @@ async def perfil(interaction: discord.Interaction):
     if interaction.guild is None:
         await interaction.response.send_message(
             "Este comando só pode ser usado dentro de um servidor.",
-            ephemeral=True
+            ephemeral=True,
+            delete_after=5
         )
         return
 
@@ -4373,7 +4396,44 @@ async def perfil(interaction: discord.Interaction):
     embed.add_field(name="Total de intermédios", value=f"`{int(total_intermedios)}`", inline=True)
     embed.set_footer(text=f"Servidor: {guild.name}")
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
+
+
+@bot.tree.command(name="rankg", description="Ranking dos usuários que mais gastaram no servidor")
+async def rankg(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando só pode ser usado dentro de um servidor.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    ranking = obter_ranking_gastos(interaction.guild.id, limite=25)
+    if not ranking:
+        await interaction.response.send_message(
+            "Ainda não há gastos registrados neste servidor.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    linhas = []
+    for i, (user_id, total) in enumerate(ranking, start=1):
+        nome = f"<@{user_id}>"
+        valor_txt = formatar_brl(total)
+        if i <= 5:
+            linhas.append(f"**{i}. {nome} — {valor_txt}**")
+        else:
+            linhas.append(f"{i}. {nome} — {valor_txt}")
+
+    embed = discord.Embed(
+        title="🏆 Ranking de Gastos (Top 25)",
+        description="\n".join(linhas),
+        color=cor_paleta("destaque")
+    )
+    embed.set_footer(text=f"Servidor: {interaction.guild.name}")
+    await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
 
 
 token = os.getenv("DISCORD_TOKEN")
@@ -4381,5 +4441,3 @@ if not token:
     raise RuntimeError("Defina a variável de ambiente DISCORD_TOKEN antes de iniciar o bot.")
 
 bot.run(token)
-
-
