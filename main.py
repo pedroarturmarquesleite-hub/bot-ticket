@@ -1404,6 +1404,20 @@ def obter_ranking_gastos(guild_id, limite=25):
     return ranking
 
 
+def obter_nivel_usuario(guild: discord.Guild, total_gasto: float):
+    niveis = get_levels_guild(guild.id)
+    cargo_atual = None
+    for nivel in niveis:
+        role = guild.get_role(nivel["role_id"])
+        if role is None:
+            continue
+        if total_gasto >= float(nivel["min_total"]):
+            cargo_atual = role
+        else:
+            break
+    return cargo_atual
+
+
 def registrar_user_intermediacao(guild_id, user_id, valor_total):
     try:
         valor = float(valor_total)
@@ -4420,12 +4434,26 @@ async def rankg(interaction: discord.Interaction):
 
     linhas = []
     for i, (user_id, total) in enumerate(ranking, start=1):
-        nome = f"<@{user_id}>"
-        valor_txt = formatar_brl(total)
-        if i <= 5:
-            linhas.append(f"**{i}. {nome} — {valor_txt}**")
+        member = interaction.guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await interaction.guild.fetch_member(user_id)
+            except Exception:
+                member = None
+
+        if member is not None:
+            nome = member.mention
         else:
-            linhas.append(f"{i}. {nome} — {valor_txt}")
+            nome = f"`{user_id}` (saiu do servidor)"
+
+        valor_txt = formatar_brl(total)
+        nivel = obter_nivel_usuario(interaction.guild, total)
+        nivel_txt = nivel.mention if nivel else "Sem nível"
+        item_txt = f"{nome} — {valor_txt} — {nivel_txt}"
+        if i <= 5:
+            linhas.append(f"**{i}. {item_txt}**")
+        else:
+            linhas.append(f"{i}. {item_txt}")
 
     embed = discord.Embed(
         title="🏆 Ranking de Gastos (Top 25)",
@@ -4433,7 +4461,7 @@ async def rankg(interaction: discord.Interaction):
         color=cor_paleta("destaque")
     )
     embed.set_footer(text=f"Servidor: {interaction.guild.name}")
-    await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
+    await interaction.response.send_message(embed=embed)
 
 
 token = os.getenv("DISCORD_TOKEN")
