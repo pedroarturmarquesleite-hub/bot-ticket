@@ -2636,7 +2636,7 @@ class ConfirmarRecebimentoView(discord.ui.View):
     @discord.ui.button(label="📋 Copiar Pix", style=ESTILO_BOTAO["sucesso"], row=0)
     async def copiar_pix(self, interaction, button):
         await interaction.response.send_message(
-            f"`{self.pix}`",
+            f"{self.pix}",
             ephemeral=True,
             delete_after=5
         )
