@@ -734,6 +734,9 @@ async def enviar_log_fechamento_ticket(guild, canal):
             )
 
     admin_logs_channel_id = _id_int(get_log_admin_canal_id(guild.id))
+    transcricao_html = None
+    transcricao_qtd = None
+    transcricao_erro = False
     if admin_logs_channel_id is not None:
         canal_admin_logs = guild.get_channel(admin_logs_channel_id)
         if canal_admin_logs is None:
@@ -745,6 +748,8 @@ async def enviar_log_fechamento_ticket(guild, canal):
         if isinstance(canal_admin_logs, discord.TextChannel):
             try:
                 html_bytes, qtd_msgs = await gerar_transcricao_ticket(canal)
+                transcricao_html = html_bytes
+                transcricao_qtd = qtd_msgs
                 arq_html = discord.File(io.BytesIO(html_bytes), filename=f"transcricao-{canal.id}.html")
                 await canal_admin_logs.send(
                     embed=embed_fluxo(
@@ -762,12 +767,20 @@ async def enviar_log_fechamento_ticket(guild, canal):
                     admin_logs_channel_id
                 )
             except Exception:
+                transcricao_erro = True
                 logger.exception(
                     "Falha ao enviar transcricao no canal admin guild_id=%s channel_id=%s canal_id=%s",
                     guild.id,
                     admin_logs_channel_id,
                     canal.id
                 )
+    else:
+        try:
+            html_bytes, qtd_msgs = await gerar_transcricao_ticket(canal)
+            transcricao_html = html_bytes
+            transcricao_qtd = qtd_msgs
+        except Exception:
+            transcricao_erro = True
 
     for uid in sorted(ids_participantes):
         membro = guild.get_member(uid)
@@ -793,6 +806,20 @@ async def enviar_log_fechamento_ticket(guild, canal):
 
         try:
             await membro.send(embed=embed_pv)
+            if transcricao_html and not transcricao_erro:
+                arq_html_pv = discord.File(
+                    io.BytesIO(transcricao_html),
+                    filename=f"transcricao-{canal.id}.html"
+                )
+                await membro.send(
+                    embed=embed_fluxo(
+                        f"Transcrição gerada para `{canal.name}`.\n"
+                        f"Mensagens: **{transcricao_qtd or 0}**",
+                        titulo="🧾 Transcrição do Ticket",
+                        cor=cor_paleta("info")
+                    ),
+                    file=arq_html_pv
+                )
         except discord.Forbidden:
             logger.info(
                 "PV bloqueado para envio de log de ticket guild_id=%s user_id=%s canal_id=%s",
@@ -2561,7 +2588,7 @@ class PixModal(discord.ui.Modal, title="Enviar chave Pix"):
         await enviar_fluxo(
             self.canal,
             f"💳 Pix do vendedor:\n*Apenas confirme o pagamento quando o Middle Man enviar o seu pix*\n`{chave}`",
-            view=ConfirmarRecebimentoView(self.canal, self.vendedor),
+            view=ConfirmarRecebimentoView(self.canal, self.vendedor, chave),
             cor=cor_paleta("info")
         )
         if estado:
@@ -2598,12 +2625,23 @@ class EnviarPixView(discord.ui.View):
         )
 
 class ConfirmarRecebimentoView(discord.ui.View):
-    def __init__(self, canal, vendedor):
+    def __init__(self, canal, vendedor, pix=None):
         super().__init__(timeout=None)
         self.canal = canal
         self.vendedor = vendedor
+        self.pix = pix
+        if not self.pix:
+            self.remove_item(self.copiar_pix)
 
-    @discord.ui.button(label="💰 Recebi o pagamento", style=ESTILO_BOTAO["sucesso"])
+    @discord.ui.button(label="📋 Copiar Pix", style=ESTILO_BOTAO["sucesso"], row=0)
+    async def copiar_pix(self, interaction, button):
+        await interaction.response.send_message(
+            f"`{self.pix}`",
+            ephemeral=True,
+            delete_after=5
+        )
+
+    @discord.ui.button(label="💰 Recebi o pagamento", style=ESTILO_BOTAO["sucesso"], row=0)
     async def confirmar_recebimento(self, interaction, button):
         if await em_cooldown(interaction, "confirmar_recebimento_vendedor", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
@@ -3310,6 +3348,12 @@ class CompraVendaSetupView(discord.ui.View):
         self.vendedor = None
         self.escolha_feita = False
 
+    def _pode_escolher(self, interaction):
+        if interaction.user == self.criador:
+            return True
+        middle_id = ticket_middleman.get(self.canal.id)
+        return middle_id is not None and interaction.user.id == int(middle_id)
+
     async def _resolver_membro_selecionado(self, interaction: discord.Interaction):
         try:
             member_id = int(interaction.data["values"][0])
@@ -3398,9 +3442,9 @@ class CompraVendaSetupView(discord.ui.View):
         if await em_cooldown(interaction, "definir_papel_compra_venda", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
-        if interaction.user != self.criador:
+        if not self._pode_escolher(interaction):
             await interaction.response.send_message(
-                "Somente quem abriu o ticket pode escolher.",
+                "Somente quem abriu o ticket ou o Middle que aceitou pode escolher.",
                 ephemeral=True, delete_after=5
             )
             return
@@ -3439,9 +3483,9 @@ class CompraVendaSetupView(discord.ui.View):
         if await em_cooldown(interaction, "definir_papel_compra_venda", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
             return
 
-        if interaction.user != self.criador:
+        if not self._pode_escolher(interaction):
             await interaction.response.send_message(
-                "Somente quem abriu o ticket pode escolher.",
+                "Somente quem abriu o ticket ou o Middle que aceitou pode escolher.",
                 ephemeral=True, delete_after=5
             )
             return
@@ -3476,6 +3520,12 @@ class CompraVendaSetupView(discord.ui.View):
 
     # -------- seleção vendedor --------
     async def select_vendedor(self, interaction):
+        if not self._pode_escolher(interaction):
+            await interaction.response.send_message(
+                "Somente quem abriu o ticket ou o Middle que aceitou pode escolher.",
+                ephemeral=True, delete_after=5
+            )
+            return
         membro = await self._resolver_membro_selecionado(interaction)
         if membro is None:
             await interaction.response.send_message(
@@ -3502,6 +3552,12 @@ class CompraVendaSetupView(discord.ui.View):
 
     # -------- seleção comprador --------
     async def select_comprador(self, interaction):
+        if not self._pode_escolher(interaction):
+            await interaction.response.send_message(
+                "Somente quem abriu o ticket ou o Middle que aceitou pode escolher.",
+                ephemeral=True, delete_after=5
+            )
+            return
         membro = await self._resolver_membro_selecionado(interaction)
         if membro is None:
             await interaction.response.send_message(
