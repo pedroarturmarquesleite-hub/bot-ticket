@@ -2516,7 +2516,7 @@ class ConfirmarPagamentoView(discord.ui.View):
                 estado["etapa"] = "aguardando_confirmacao_entrega"
             await enviar_fluxo(
                 self.canal,
-                f"📦 {self.comprador.mention}, o Middle Man recebeu o dinhiero,faça a troca do item,\n assim que a troca for concluida clique no botão para confimar o recebimento do item.:",
+                f"📦 {self.comprador.mention}, o Middle Man recebeu o dinheiro,faça a troca do item,\n assim que a troca for concluida clique no botão para confimar o recebimento do item.:",
                 view=ConfirmarEntregaView(self.canal, self.comprador, self.vendedor),
                 cor=cor_paleta("destaque")
             )
