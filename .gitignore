@@ -7,3 +7,8 @@ logs/
 .env
 __pycache__/
 *.pyc
+bot_settings.db*
+*.log
+__pycache__/
+*.pyc
+ticket_state.json
