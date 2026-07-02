@@ -4674,6 +4674,7 @@ async def venda(interaction: discord.Interaction, usuario: discord.User, valor: 
         embed.add_field(name="Vendedor", value=interaction.user.mention, inline=True)
         embed.add_field(name="Cliente", value=usuario.mention, inline=True)
         embed.add_field(name="Valor", value=f"R$ {valor_num:.2f}", inline=True)
+        embed.set_thumbnail(url="https://media.discordapp.net/attachments/1473531494432641034/1484349942901379124/image.png?ex=69bde81c&is=69bc969c&hm=45aecc9cefb2d3080c502b6d3d19d19d7f7bd5aa07c6077689bb2bb9ef78376b&=&format=webp&quality=lossless&width=975&height=975")
         horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
         embed.set_footer(text=f"{horario_brasilia.strftime('%d/%m/%Y %H:%M (BRT)')} | Venda manual")
         try:
