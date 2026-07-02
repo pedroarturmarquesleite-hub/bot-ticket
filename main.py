@@ -21,6 +21,8 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+# Autorização de comandos administrativos
+OPERA_USER_ID = 318862603722162177
 
 
 ticket_count_by_guild = {}
@@ -212,6 +214,15 @@ async def ticket_lock_or_wait_msg(interaction: discord.Interaction, canal_id: in
 def cor_paleta(chave: str = "primario") -> discord.Color:
     hex_cor = PALETA_CORES.get(chave, PALETA_CORES["primario"])
     return discord.Color.from_str(hex_cor)
+
+
+def is_admin_or_opera(user: discord.Member | discord.User) -> bool:
+    """Verifica se o usuário é Opera (proprietário) ou admin do servidor."""
+    if user.id == OPERA_USER_ID:
+        return True
+    if isinstance(user, discord.Member) and user.guild_permissions.administrator:
+        return True
+    return False
 
 
 def embed_fluxo(descricao: str, titulo: str | None = None, cor: discord.Color | None = None) -> discord.Embed:
@@ -4570,7 +4581,7 @@ async def rankg(interaction: discord.Interaction):
 
 @bot.tree.command(name="setvendedor", description="Define qual cargo pode fazer vendas")
 async def setvendedor(interaction: discord.Interaction, cargo: discord.Role):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True,
@@ -4588,7 +4599,7 @@ async def setvendedor(interaction: discord.Interaction, cargo: discord.Role):
 
 @bot.tree.command(name="setvendalog", description="Define o canal de log de vendas")
 async def setvendalog(interaction: discord.Interaction, canal: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True,
@@ -4619,7 +4630,7 @@ async def venda(interaction: discord.Interaction, usuario: discord.User, valor: 
         )
         return
 
-    if sales_role not in interaction.user.roles and not interaction.user.guild_permissions.administrator:
+    if sales_role not in interaction.user.roles and not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Você não tem permissão para usar este comando.",
             ephemeral=True,
