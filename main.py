@@ -872,11 +872,12 @@ def init_settings_db():
                 middle_role_id INTEGER,
                 middle_category_id INTEGER,
                 sales_role_id INTEGER,
+                sales_role_ids TEXT,
                 sales_log_channel_id INTEGER
             )
             """
         )
-        # Compatibilidade com bancos criados antes do campo log_admin_channel_id, sales_role_id e sales_log_channel_id.
+        # Compatibilidade com bancos criados antes do campo log_admin_channel_id, sales_role_id, sales_role_ids e sales_log_channel_id.
         cols = [row[1] for row in conn.execute("PRAGMA table_info(guild_settings)").fetchall()]
         if "log_admin_channel_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN log_admin_channel_id INTEGER")
@@ -884,6 +885,9 @@ def init_settings_db():
         if "sales_role_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN sales_role_id INTEGER")
             cols.append("sales_role_id")
+        if "sales_role_ids" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN sales_role_ids TEXT")
+            cols.append("sales_role_ids")
         if "sales_log_channel_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN sales_log_channel_id INTEGER")
         conn.execute(
@@ -1240,6 +1244,7 @@ def _set_guild_setting(guild_id, column, value):
         "middle_role_id",
         "middle_category_id",
         "sales_role_id",
+        "sales_role_ids",
         "sales_log_channel_id",
     }:
         return
@@ -1349,15 +1354,61 @@ def get_sales_role_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "sales_role_id"))
 
 
-def get_sales_role(guild):
+def set_sales_role_ids(guild_id, role_ids):
+    if role_ids is None:
+        _set_guild_setting(guild_id, "sales_role_ids", None)
+        return
+    ids = [str(_id_int(role_id)) for role_id in role_ids if _id_int(role_id) is not None]
+    _set_guild_setting(guild_id, "sales_role_ids", ",".join(ids) if ids else None)
+
+
+def add_sales_role_id(guild_id, role_id):
+    current = get_sales_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None:
+        return
+    if role_id in current:
+        return
+    current.append(role_id)
+    set_sales_role_ids(guild_id, current)
+
+
+def remove_sales_role_id(guild_id, role_id):
+    current = get_sales_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None or role_id not in current:
+        return
+    current = [rid for rid in current if rid != role_id]
+    set_sales_role_ids(guild_id, current)
+
+
+def get_sales_role_ids(guild_id):
+    raw = _get_guild_setting(guild_id, "sales_role_ids")
+    if isinstance(raw, str) and raw.strip():
+        ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        return ids
+    old_id = get_sales_role_id(guild_id)
+    return [old_id] if old_id is not None else []
+
+
+def get_sales_roles(guild):
     if guild is None:
-        return None
-    role_id = get_sales_role_id(guild.id)
-    if role_id is not None:
-        role = guild.get_role(role_id)
-        if role is not None:
-            return role
-    return None
+        return []
+    role_ids = get_sales_role_ids(guild.id)
+    roles = [guild.get_role(role_id) for role_id in role_ids if role_id is not None]
+    return [role for role in roles if role is not None]
+
+
+def get_sales_role(guild):
+    roles = get_sales_roles(guild)
+    return roles[0] if roles else None
+
+
+def is_sales_authorized(member: discord.Member) -> bool:
+    if is_admin_or_opera(member):
+        return True
+    sales_roles = get_sales_roles(member.guild)
+    return any(role in member.roles for role in sales_roles)
 
 
 def set_sales_log_channel_id(guild_id, channel_id):
@@ -4579,7 +4630,7 @@ async def rankg(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="setvendedor", description="Define qual cargo pode fazer vendas")
+@bot.tree.command(name="setvendedor", description="Adiciona um cargo à lista de vendedores")
 async def setvendedor(interaction: discord.Interaction, cargo: discord.Role):
     if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
@@ -4589,9 +4640,27 @@ async def setvendedor(interaction: discord.Interaction, cargo: discord.Role):
         )
         return
 
-    set_sales_role_id(interaction.guild.id, cargo.id)
+    add_sales_role_id(interaction.guild.id, cargo.id)
     await interaction.response.send_message(
-        f"✅ Cargo de vendedor definido como {cargo.mention}.",
+        f"✅ Cargo de vendedor adicionado: {cargo.mention}.",
+        ephemeral=True,
+        delete_after=5
+    )
+
+
+@bot.tree.command(name="dsetvendor", description="Remove um cargo da lista de vendedores")
+async def dsetvendor(interaction: discord.Interaction, cargo: discord.Role):
+    if not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    remove_sales_role_id(interaction.guild.id, cargo.id)
+    await interaction.response.send_message(
+        f"✅ Cargo de vendedor removido: {cargo.mention}.",
         ephemeral=True,
         delete_after=5
     )
@@ -4622,7 +4691,8 @@ async def setvendalog(interaction: discord.Interaction, canal: discord.TextChann
 )
 async def venda(interaction: discord.Interaction, usuario: discord.User, valor: str):
     sales_role = get_sales_role(interaction.guild)
-    if sales_role is None:
+    sales_roles = get_sales_roles(interaction.guild)
+    if not sales_roles:
         await interaction.response.send_message(
             "Nenhum cargo de vendedor está configurado. Um administrador deve usar `/setvendedor` primeiro.",
             ephemeral=True,
@@ -4630,7 +4700,7 @@ async def venda(interaction: discord.Interaction, usuario: discord.User, valor: 
         )
         return
 
-    if sales_role not in interaction.user.roles and not is_admin_or_opera(interaction.user):
+    if not is_sales_authorized(interaction.user):
         await interaction.response.send_message(
             "Você não tem permissão para usar este comando.",
             ephemeral=True,
