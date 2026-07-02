@@ -2122,204 +2122,6 @@ class botd(discord.Client):
             await self._iniciar_fluxo_pix_brainrot(canal, comprador, vendedor, reiniciado=True)
             return
 
-    def _parse_role_from_text(self, guild: discord.Guild, texto: str) -> discord.Role | None:
-        if guild is None or not texto:
-            return None
-
-        texto = texto.strip()
-        if not texto:
-            return None
-
-        if hasattr(texto, "strip"):
-            texto = texto.strip()
-
-        if hasattr(texto, "lower") and texto.lower().startswith("<@&") and texto.endswith(">"):
-            try:
-                role_id = int(re.sub(r"[^0-9]", "", texto))
-                return guild.get_role(role_id)
-            except (TypeError, ValueError):
-                return None
-
-        if message := discord.utils.get(guild.roles, name=texto):
-            return message
-
-        role_id = _id_int(texto)
-        if role_id is not None:
-            return guild.get_role(role_id)
-
-        return None
-
-    async def _handle_prefix_commands(self, message: discord.Message):
-        if message.author.bot or message.guild is None:
-            return
-
-        content = message.content.strip()
-        lower = content.lower()
-
-        if lower.startswith("!setvendedor"):
-            if not message.author.guild_permissions.administrator:
-                await message.channel.send(
-                    "Apenas administradores podem usar este comando."
-                )
-                return
-
-            args = content[len("!setvendedor"):].strip()
-            if not args:
-                await message.channel.send(
-                    "Uso: `!setvendedor @Cargo`\nExemplo: `!setvendedor @Vendedor`"
-                )
-                return
-
-            role = None
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = self._parse_role_from_text(message.guild, args)
-
-            if role is None:
-                await message.channel.send(
-                    "Cargo não encontrado. Use um @cargo ou o nome do cargo exato."
-                )
-                return
-
-            set_sales_role_id(message.guild.id, role.id)
-            await message.channel.send(
-                f"✅ Cargo de vendedor definido como {role.mention}."
-            )
-            return
-
-        if lower.startswith("!setvendalog"):
-            if not message.author.guild_permissions.administrator:
-                await message.channel.send(
-                    "Apenas administradores podem usar este comando."
-                )
-                return
-
-            args = content[len("!setvendalog"):].strip()
-            if not args:
-                await message.channel.send(
-                    "Uso: `!setvendalog #canal`\nExemplo: `!setvendalog #vendas-log`"
-                )
-                return
-
-            role = None
-            if message.channel_mentions:
-                # channel_mentions is not used for role, but try to parse channel by mention.
-                pass
-
-            channel = None
-            if message.channel_mentions:
-                channel = message.channel_mentions[0]
-            else:
-                try:
-                    channel_id = int(re.sub(r"[^0-9]", "", args))
-                    channel = message.guild.get_channel(channel_id)
-                except (TypeError, ValueError):
-                    channel = None
-
-            if channel is None or not isinstance(channel, discord.TextChannel):
-                await message.channel.send(
-                    "Canal não encontrado. Use um #canal ou ID de canal válido."
-                )
-                return
-
-            set_sales_log_channel_id(message.guild.id, channel.id)
-            await message.channel.send(
-                f"✅ Canal de log de vendas definido para {channel.mention}."
-            )
-            return
-
-        if lower.startswith("!venda"):
-            sales_role = get_sales_role(message.guild)
-            if sales_role is None:
-                await message.channel.send(
-                    "Nenhum cargo de vendedor está configurado. Um administrador deve usar `!setvendedor` primeiro."
-                )
-                return
-
-            if sales_role not in message.author.roles and not message.author.guild_permissions.administrator:
-                await message.channel.send(
-                    "Você não tem permissão para usar este comando."
-                )
-                return
-
-            if not message.mentions:
-                await message.channel.send(
-                    "Uso: `!venda @Usuario valor`\nExemplo: `!venda @Fulano 10`"
-                )
-                return
-
-            target = message.mentions[0]
-            after_mention = content
-            try:
-                mention_text = message.content[message.content.index(message.mentions[0].mention):]
-                after_mention = content.replace(mention_text, "", 1).strip()
-            except ValueError:
-                after_mention = content[len("!venda"):].strip()
-
-            valor_str = re.sub(r"[()\s]", "", after_mention)
-            if not valor_str:
-                await message.channel.send(
-                    "Uso: `!venda @Usuario valor`\nExemplo: `!venda @Fulano 10`"
-                )
-                return
-
-            try:
-                valor = float(valor_str.replace(",", "."))
-            except (TypeError, ValueError):
-                await message.channel.send(
-                    "Valor inválido. Use um número como `10` ou `10.50`."
-                )
-                return
-
-            if valor <= 0:
-                await message.channel.send(
-                    "O valor da venda deve ser maior que 0."
-                )
-                return
-
-            total = adicionar_gasto_usuario(message.guild.id, target.id, valor)
-            try:
-                await atualizar_cargos_niveis_usuario(message.guild, target.id, total)
-            except Exception:
-                logger.exception(
-                    "Falha ao atualizar cargos de nível após venda manual guild_id=%s user_id=%s valor=%s",
-                    message.guild.id,
-                    target.id,
-                    valor
-                )
-
-            await message.channel.send(
-                f"✅ Venda registrada: {target.mention} recebeu R$ {valor:.2f} de gasto. Total gasto agora: R$ {total:.2f}."
-            )
-
-            sales_log_channel = get_sales_log_channel(message.guild)
-            if sales_log_channel is not None:
-                embed = discord.Embed(
-                    title="✅ Registro de Venda",
-                    description=(
-                        f"{target.mention} fez uma compra no valor de **R$ {valor:.2f}** com o vendedor {message.author.mention}."
-                    ),
-                    color=cor_paleta("primario")
-                )
-                embed.add_field(name="Vendedor", value=message.author.mention, inline=True)
-                embed.add_field(name="Cliente", value=target.mention, inline=True)
-                embed.add_field(name="Valor", value=f"R$ {valor:.2f}", inline=True)
-                horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
-                embed.set_footer(text=f"{horario_brasilia.strftime('%d/%m/%Y %H:%M (BRT)')} | Venda manual")
-                try:
-                    await sales_log_channel.send(embed=embed)
-                except Exception:
-                    logger.exception(
-                        "Falha ao enviar log de venda guild_id=%s channel_id=%s",
-                        message.guild.id,
-                        get_sales_log_channel_id(message.guild.id)
-                    )
-            return
-
-    async def on_message(self, message: discord.Message):
-        await self._handle_prefix_commands(message)
-
     async def on_ready(self):
         logger.info("Bot %s ON", self.user)
         if self._daily_ranking_task is None or self._daily_ranking_task.done():
@@ -4764,6 +4566,124 @@ async def rankg(interaction: discord.Interaction):
     )
     embed.set_footer(text=f"Servidor: {interaction.guild.name}")
     await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="setvendedor", description="Define qual cargo pode fazer vendas")
+async def setvendedor(interaction: discord.Interaction, cargo: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    set_sales_role_id(interaction.guild.id, cargo.id)
+    await interaction.response.send_message(
+        f"✅ Cargo de vendedor definido como {cargo.mention}.",
+        ephemeral=True,
+        delete_after=5
+    )
+
+
+@bot.tree.command(name="setvendalog", description="Define o canal de log de vendas")
+async def setvendalog(interaction: discord.Interaction, canal: discord.TextChannel):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    set_sales_log_channel_id(interaction.guild.id, canal.id)
+    await interaction.response.send_message(
+        f"✅ Canal de log de vendas definido para {canal.mention}.",
+        ephemeral=True,
+        delete_after=5
+    )
+
+
+@bot.tree.command(name="venda", description="Registra uma venda manual de um item para um usuário")
+@app_commands.describe(
+    usuario="Usuário que está comprando",
+    valor="Valor da venda (ex: 10 ou 10.50)"
+)
+async def venda(interaction: discord.Interaction, usuario: discord.User, valor: str):
+    sales_role = get_sales_role(interaction.guild)
+    if sales_role is None:
+        await interaction.response.send_message(
+            "Nenhum cargo de vendedor está configurado. Um administrador deve usar `/setvendedor` primeiro.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    if sales_role not in interaction.user.roles and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "Você não tem permissão para usar este comando.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    try:
+        valor_num = float(valor.replace(",", "."))
+    except (TypeError, ValueError):
+        await interaction.response.send_message(
+            "Valor inválido. Use um número como `10` ou `10.50`.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    if valor_num <= 0:
+        await interaction.response.send_message(
+            "O valor da venda deve ser maior que 0.",
+            ephemeral=True,
+            delete_after=5
+        )
+        return
+
+    total = adicionar_gasto_usuario(interaction.guild.id, usuario.id, valor_num)
+    try:
+        await atualizar_cargos_niveis_usuario(interaction.guild, usuario.id, total)
+    except Exception:
+        logger.exception(
+            "Falha ao atualizar cargos de nível após venda manual guild_id=%s user_id=%s valor=%s",
+            interaction.guild.id,
+            usuario.id,
+            valor_num
+        )
+
+    await interaction.response.send_message(
+        f"✅ Venda registrada: {usuario.mention} recebeu R$ {valor_num:.2f} de gasto. Total gasto agora: R$ {total:.2f}.",
+        ephemeral=True,
+        delete_after=10
+    )
+
+    sales_log_channel = get_sales_log_channel(interaction.guild)
+    if sales_log_channel is not None:
+        embed = discord.Embed(
+            title="✅ Registro de Venda",
+            description=(
+                f"{usuario.mention} fez uma compra no valor de **R$ {valor_num:.2f}** com o vendedor {interaction.user.mention}."
+            ),
+            color=cor_paleta("primario")
+        )
+        embed.add_field(name="Vendedor", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Cliente", value=usuario.mention, inline=True)
+        embed.add_field(name="Valor", value=f"R$ {valor_num:.2f}", inline=True)
+        horario_brasilia = discord.utils.utcnow().astimezone(ZoneInfo("America/Sao_Paulo"))
+        embed.set_footer(text=f"{horario_brasilia.strftime('%d/%m/%Y %H:%M (BRT)')} | Venda manual")
+        try:
+            await sales_log_channel.send(embed=embed)
+        except Exception:
+            logger.exception(
+                "Falha ao enviar log de venda guild_id=%s channel_id=%s",
+                interaction.guild.id,
+                get_sales_log_channel_id(interaction.guild.id)
+            )
 
 
 token = os.getenv("DISCORD_TOKEN")
