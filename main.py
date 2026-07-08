@@ -1952,7 +1952,7 @@ def criar_embed_painel_leilao(guild_id=None):
         value=(
             "• Abra uma solicitação de leilão\n"
             "• Um canal privado será criado para você\n"
-            "• Os cargos configurados em `/setcargoleilao` poderão ver o pedido"
+            "• Os cargos configurados em /setcargoleilao poderão ver o pedido"
         ),
         inline=False
     )
@@ -2483,7 +2483,7 @@ class botd(discord.Client):
 
         descricao = (
             f"👋 {interaction.user.mention} seu ticket de leilão foi aberto com sucesso!\n\n"
-            "Este canal é privado para você e para os cargos configurados em /setcargoleilao."
+            "Em breve um membro da equipe irá entrar em contato com você para finalizar o processo de leilão."
         )
         if not get_leilao_roles(interaction.guild):
             descricao += "\n\n⚠️ Nenhum cargo de leilão está configurado. Use `/setcargoleilao` para adicionar cargos que possam ver este ticket."
