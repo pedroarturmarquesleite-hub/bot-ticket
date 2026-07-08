@@ -4215,7 +4215,7 @@ class TicketView(discord.ui.View):
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        ticket_name = self.proximo_nome_ticket(interaction.guild, "🔒-leilao")
+        ticket_name = self.proximo_nome_ticket(interaction.guild, "leilao-so")
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True)
@@ -4224,21 +4224,35 @@ class TicketView(discord.ui.View):
         for role in get_leilao_roles(interaction.guild):
             overwrites[role] = discord.PermissionOverwrite(view_channel=True)
 
+        categoria = await self.obter_ou_criar_categoria_middle(interaction.guild)
         try:
             canal = await interaction.guild.create_text_channel(
                 name=ticket_name,
                 overwrites=overwrites,
-                category=await self.obter_ou_criar_categoria_middle(interaction.guild)
+                category=categoria
             )
         except discord.Forbidden:
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    "Não tenho permissão para criar o ticket de leilão.",
+                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
                     ephemeral=True, delete_after=5
                 )
             else:
                 await interaction.response.send_message(
-                    "Não tenho permissão para criar o ticket de leilão.",
+                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+        except Exception:
+            logger.exception("Falha ao criar ticket de leilão para guild=%s user=%s", interaction.guild.id, interaction.user.id)
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
                     ephemeral=True, delete_after=5
                 )
             return
