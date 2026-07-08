@@ -351,7 +351,7 @@ def carregar_estado_tickets():
         canal_int = _id_int(canal_id)
         if canal_int is None:
             continue
-        if kind in {"pix", "cross_trade"}:
+        if kind in {"pix", "cross_trade", "leilao"}:
             types[canal_int] = kind
 
     return {
@@ -381,7 +381,7 @@ def salvar_estado_tickets():
             if isinstance(info, dict)
         },
         "creators": {str(k): int(v) for k, v in ticket_creator.items()},
-        "types": {str(k): v for k, v in ticket_type.items() if v in {"pix"}}
+        "types": {str(k): v for k, v in ticket_type.items() if v in {"pix", "cross_trade", "leilao"}}
     }
 
     temp_file = f"{TICKET_STATE_FILE}.tmp"
@@ -873,11 +873,14 @@ def init_settings_db():
                 middle_category_id INTEGER,
                 sales_role_id INTEGER,
                 sales_role_ids TEXT,
-                sales_log_channel_id INTEGER
+                sales_log_channel_id INTEGER,
+                leilao_panel_channel_id INTEGER,
+                leilao_role_ids TEXT
             )
             """
         )
-        # Compatibilidade com bancos criados antes do campo log_admin_channel_id, sales_role_id, sales_role_ids e sales_log_channel_id.
+        # Compatibilidade com bancos criados antes do campo log_admin_channel_id, sales_role_id, sales_role_ids, sales_log_channel_id,
+        # leilao_panel_channel_id e leilao_role_ids.
         cols = [row[1] for row in conn.execute("PRAGMA table_info(guild_settings)").fetchall()]
         if "log_admin_channel_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN log_admin_channel_id INTEGER")
@@ -890,6 +893,12 @@ def init_settings_db():
             cols.append("sales_role_ids")
         if "sales_log_channel_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN sales_log_channel_id INTEGER")
+        if "leilao_panel_channel_id" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN leilao_panel_channel_id INTEGER")
+            cols.append("leilao_panel_channel_id")
+        if "leilao_role_ids" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN leilao_role_ids TEXT")
+            cols.append("leilao_role_ids")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS guild_taxa (
@@ -1246,6 +1255,8 @@ def _set_guild_setting(guild_id, column, value):
         "sales_role_id",
         "sales_role_ids",
         "sales_log_channel_id",
+        "leilao_panel_channel_id",
+        "leilao_role_ids",
     }:
         return
     with sqlite_connect() as conn:
@@ -1436,6 +1447,106 @@ def set_middle_category_id(guild_id, category_id):
 
 def get_middle_category_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "middle_category_id"))
+
+
+def set_leilao_panel_channel_id(guild_id, channel_id):
+    _set_guild_setting(guild_id, "leilao_panel_channel_id", _id_int(channel_id))
+
+
+def get_leilao_panel_channel_id(guild_id):
+    return _id_int(_get_guild_setting(guild_id, "leilao_panel_channel_id"))
+
+
+def set_leilao_role_ids(guild_id, role_ids):
+    if role_ids is None:
+        _set_guild_setting(guild_id, "leilao_role_ids", None)
+        return
+    ids = [str(_id_int(role_id)) for role_id in role_ids if _id_int(role_id) is not None]
+    _set_guild_setting(guild_id, "leilao_role_ids", ",".join(ids) if ids else None)
+
+
+def add_leilao_role_id(guild_id, role_id):
+    current = get_leilao_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None or role_id in current:
+        return
+    current.append(role_id)
+    set_leilao_role_ids(guild_id, current)
+
+
+def remove_leilao_role_id(guild_id, role_id):
+    current = get_leilao_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None or role_id not in current:
+        return
+    current = [rid for rid in current if rid != role_id]
+    set_leilao_role_ids(guild_id, current)
+
+
+def get_leilao_role_ids(guild_id):
+    raw = _get_guild_setting(guild_id, "leilao_role_ids")
+    if isinstance(raw, str) and raw.strip():
+        ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        return ids
+    return []
+
+
+def get_leilao_roles(guild):
+    if guild is None:
+        return []
+    role_ids = get_leilao_role_ids(guild.id)
+    roles = [guild.get_role(role_id) for role_id in role_ids if role_id is not None]
+    return [role for role in roles if role is not None]
+
+
+def set_leilao_panel_channel_id(guild_id, channel_id):
+    _set_guild_setting(guild_id, "leilao_panel_channel_id", _id_int(channel_id))
+
+
+def get_leilao_panel_channel_id(guild_id):
+    return _id_int(_get_guild_setting(guild_id, "leilao_panel_channel_id"))
+
+
+def set_leilao_role_ids(guild_id, role_ids):
+    if role_ids is None:
+        _set_guild_setting(guild_id, "leilao_role_ids", None)
+        return
+    ids = [str(_id_int(role_id)) for role_id in role_ids if _id_int(role_id) is not None]
+    _set_guild_setting(guild_id, "leilao_role_ids", ",".join(ids) if ids else None)
+
+
+def add_leilao_role_id(guild_id, role_id):
+    current = get_leilao_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None or role_id in current:
+        return
+    current.append(role_id)
+    set_leilao_role_ids(guild_id, current)
+
+
+def remove_leilao_role_id(guild_id, role_id):
+    current = get_leilao_role_ids(guild_id)
+    role_id = _id_int(role_id)
+    if role_id is None or role_id not in current:
+        return
+    current = [rid for rid in current if rid != role_id]
+    set_leilao_role_ids(guild_id, current)
+
+
+def get_leilao_role_ids(guild_id):
+    raw = _get_guild_setting(guild_id, "leilao_role_ids")
+    if isinstance(raw, str) and raw.strip():
+        ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        return ids
+    return []
+
+
+def get_leilao_roles(guild):
+    if guild is None:
+        return []
+    role_ids = get_leilao_role_ids(guild.id)
+    roles = [guild.get_role(role_id) for role_id in role_ids if role_id is not None]
+    return [role for role in roles if role is not None]
 
 
 def get_levels_guild(guild_id):
@@ -1813,6 +1924,69 @@ def salvar_taxa_config_guild(guild_id, cfg):
                 (int(guild_id), faixa, float(valor))
             )
         conn.commit()
+
+
+def criar_embed_painel_leilao(guild_id=None):
+    embed = discord.Embed(
+        title="🎯 Solicitação de Leilão",
+        description=(
+            "> Clique no botão para solicitar um leilão. Faça um leilão privado para todos os membros do servidor.\n\n"
+            "O canal será criado privadamente para você e para os cargos de leilão configurados."
+        ),
+        color=cor_paleta("info")
+    )
+    embed.add_field(
+        name="Como funciona",
+        value=(
+            "• Abra uma solicitação de leilão\n"
+            "• Um canal privado será criado para você\n"
+            "• Os cargos configurados em `/setcargoleilao` poderão ver o pedido"
+        ),
+        inline=False
+    )
+
+    img_url = PANEL_DEFAULT_IMAGE_URL
+    embed.set_image(url=img_url)
+    return embed
+
+
+class LeilaoTicketView(discord.ui.View):
+    def __init__(self, canal):
+        super().__init__(timeout=None)
+        self.canal = canal
+
+    @discord.ui.button(label="🔒 Fechar Ticket", style=ESTILO_BOTAO["perigo"])
+    async def fechar(self, interaction, button):
+        if await em_cooldown(interaction, "fechar_ticket", COOLDOWN_CLIQUE_CRITICO_SEGUNDOS):
+            return
+        lock = await ticket_lock_or_wait_msg(interaction, self.canal.id)
+        if lock is None:
+            return
+        async with lock:
+            await self._processar_fechamento(interaction, "🔒 Fechando ticket...")
+
+    async def _processar_fechamento(self, interaction, texto_inicio: str):
+        await interaction.response.send_message(
+            texto_inicio,
+            ephemeral=True,
+            delete_after=5
+        )
+
+        canal_id = self.canal.id
+        remover_estado_ticket(canal_id)
+        await self.canal.delete()
+
+
+class SolicitarLeilaoView(discord.ui.View):
+    def __init__(self, bot_client):
+        super().__init__(timeout=None)
+        self.bot_client = bot_client
+
+    @discord.ui.button(label="Solicitar Leilão", style=ESTILO_BOTAO["sucesso"])
+    async def solicitar(self, interaction, button):
+        if await em_cooldown(interaction, "abrir_ticket_leilao", COOLDOWN_ABRIR_TICKET_SEGUNDOS):
+            return
+        await self.bot_client.criar_ticket_leilao(interaction)
 
 
 migrar_dados_legados()
@@ -2226,6 +2400,27 @@ class botd(discord.Client):
                 logger.warning("Sem permissao para gerenciar mensagens no canal %s", canal.id)
             except discord.HTTPException as e:
                 logger.warning("Falha ao atualizar painel no canal %s: %s", canal.id, e)
+
+        for guild in list(self.guilds):
+            channel_id = get_leilao_panel_channel_id(guild.id)
+            if channel_id is None:
+                continue
+
+            try:
+                canal = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
+            except Exception:
+                continue
+
+            if not isinstance(canal, discord.TextChannel):
+                continue
+
+            try:
+                await canal.purge(limit=50, check=lambda m: m.author == self.user)
+                await canal.send(embed=criar_embed_painel_leilao(canal.guild.id), view=SolicitarLeilaoView(self))
+            except discord.Forbidden:
+                logger.warning("Sem permissao para gerenciar mensagens no canal de leilao %s", canal.id)
+            except discord.HTTPException as e:
+                logger.warning("Falha ao atualizar painel de leilao no canal %s: %s", canal.id, e)
 
         removidos = 0
         recuperados = 0
@@ -2801,7 +2996,7 @@ class FecharTicketView(discord.ui.View):
 
     async def _processar_fechamento(self, interaction, texto_inicio: str, *, forcar_log: bool = False, permitir_admin: bool = True):
         middle_id = ticket_middleman.get(self.canal.id)
-        is_admin = interaction.user.guild_permissions.administrator
+        is_admin = is_admin_or_opera(interaction.user)
 
         autorizado = interaction.user.id == middle_id or (permitir_admin and is_admin)
         if not autorizado:
@@ -4003,6 +4198,74 @@ class TicketView(discord.ui.View):
     async def criar_ticket_middleman_cross(self, interaction):
         await self.criar_ticket_middleman(interaction, ticket_kind="cross_trade")
 
+    async def criar_ticket_leilao(self, interaction):
+        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
+        ticket_name = self.proximo_nome_ticket(interaction.guild, "🔒-leilao")
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True)
+        }
+
+        for role in get_leilao_roles(interaction.guild):
+            overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+
+        try:
+            canal = await interaction.guild.create_text_channel(
+                name=ticket_name,
+                overwrites=overwrites,
+                category=await self.obter_ou_criar_categoria_middle(interaction.guild)
+            )
+        except discord.Forbidden:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Não tenho permissão para criar o ticket de leilão.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Não tenho permissão para criar o ticket de leilão.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+
+        salvar_tipo_ticket(canal.id, "leilao")
+        salvar_criador_ticket(canal.id, interaction.user.id)
+
+        descricao = (
+            f"👋 {interaction.user.mention} seu ticket de leilão foi aberto com sucesso!\n\n"
+            "Este canal é privado para você e para os cargos configurados em /setcargoleilao."
+        )
+        if not get_leilao_roles(interaction.guild):
+            descricao += "\n\n⚠️ Nenhum cargo de leilão está configurado. Use `/setcargoleilao` para adicionar cargos que possam ver este ticket."
+
+        await enviar_fluxo(
+            canal,
+            descricao,
+            cor=cor_paleta("sucesso"),
+            view=LeilaoTicketView(canal)
+        )
+
+        await self._enviar_confirmacao_abertura(
+            interaction,
+            canal,
+            f"✅ | {interaction.user.mention}, seu ticket de leilão foi aberto!"
+        )
+
 
 class EscolhaTipoTicketView(discord.ui.View):
     def __init__(self, ticket_view: TicketView):
@@ -4050,7 +4313,7 @@ async def setpix(interaction: discord.Interaction, chave: str, nome: str):
 
 @bot.tree.command(name="painel1", description="Enviar painel de tickets")
 async def painel1(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4064,7 +4327,7 @@ async def painel1(interaction: discord.Interaction):
 
 @bot.tree.command(name="setpainel", description="Define o canal fixo do painel")
 async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4087,9 +4350,34 @@ async def setpainel(interaction: discord.Interaction, canal: discord.TextChannel
         ephemeral=True, delete_after=5
     )
 
+@bot.tree.command(name="setleilao", description="Define o canal fixo do painel de leilões")
+async def setleilao(interaction: discord.Interaction, canal: discord.TextChannel):
+    if not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=5
+        )
+        return
+
+    set_leilao_panel_channel_id(interaction.guild.id, canal.id)
+
+    try:
+        await canal.send(embed=criar_embed_painel_leilao(interaction.guild.id), view=SolicitarLeilaoView(bot))
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "Não tenho permissão para enviar mensagem nesse canal.",
+            ephemeral=True, delete_after=5
+        )
+        return
+
+    await interaction.response.send_message(
+        f"✅ Painel de leilão configurado com sucesso em {canal.mention}.",
+        ephemeral=True, delete_after=5
+    )
+
 @bot.tree.command(name="setimgp", description="Define a imagem do painel por URL")
 async def setimgp(interaction: discord.Interaction, url: str):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4140,7 +4428,7 @@ async def setimgp(interaction: discord.Interaction, url: str):
 
 @bot.tree.command(name="setaceite", description="Define o canal de pedidos para os middleman")
 async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4157,7 +4445,7 @@ async def setaceite(interaction: discord.Interaction, canal: discord.TextChannel
 
 @bot.tree.command(name="setrolemiddle", description="Define qual cargo pode atuar como Middle")
 async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4171,9 +4459,28 @@ async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
     )
 
 
+@bot.tree.command(name="setcargoleilao", description="Adiciona um cargo que pode ver tickets de leilão")
+async def setcargoleilao(interaction: discord.Interaction, cargo: discord.Role):
+    if not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=5
+        )
+        return
+
+    add_leilao_role_id(interaction.guild.id, cargo.id)
+    cargos = get_leilao_roles(interaction.guild)
+    cargos_txt = ", ".join(r.mention for r in cargos) if cargos else "Nenhum cargo configurado."
+
+    await interaction.response.send_message(
+        f"✅ Cargo de leilão adicionado: {cargo.mention}.\nCargos atuais: {cargos_txt}",
+        ephemeral=True, delete_after=10
+    )
+
+
 @bot.tree.command(name="setcmiddle", description="Define a categoria onde os tickets de middle serão criados")
 async def setcmiddle(interaction: discord.Interaction, categoria: discord.CategoryChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4193,7 +4500,7 @@ async def setcmiddle(interaction: discord.Interaction, categoria: discord.Catego
     valor="Valor mínimo acumulado para receber o cargo"
 )
 async def setnvl(interaction: discord.Interaction, cargo: discord.Role, valor: float):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4225,7 +4532,7 @@ async def setnvl(interaction: discord.Interaction, cargo: discord.Role, valor: f
 
 @bot.tree.command(name="setlogs", description="Define o canal de logs do bot")
 async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4243,7 +4550,7 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
 
 @bot.tree.command(name="setlogadmin", description="Define o canal de logs administrativos (transcrições)")
 async def setlogadmin(interaction: discord.Interaction, canal: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4328,6 +4635,8 @@ async def helpb(interaction: discord.Interaction):
         value=(
             "`/painel1` — Envia o painel de tickets. *(Apenas Admin)*\n"
             "`/setpainel` — Define o canal fixo do painel. *(Apenas Admin)*\n"
+            "`/setleilao` — Define o canal fixo do painel de leilões. *(Apenas Admin)*\n"
+            "`/setcargoleilao` — Adiciona o cargo que pode ver tickets de leilão. *(Apenas Admin)*\n"
             "`/setimgp` — Define a imagem do painel via URL. *(Apenas Admin)*\n"
             "`/setaceite` — Define o canal de aceite dos MM. *(Apenas Admin)*\n"
             "`/setrolemiddle` — Define o cargo de Middle Man. *(Apenas Admin)*\n"
@@ -4405,7 +4714,7 @@ async def settaxa(
     faixa: app_commands.Choice[str],
     valor: float
 ):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin_or_opera(interaction.user):
         await interaction.response.send_message(
             "Apenas administradores podem usar este comando.",
             ephemeral=True, delete_after=5
@@ -4434,7 +4743,7 @@ async def settaxa(
 async def cobrar(interaction: discord.Interaction, valor: float):
     role = get_middle_role(interaction.guild)
     is_middle = role in interaction.user.roles if role else False
-    is_admin = interaction.user.guild_permissions.administrator
+    is_admin = is_admin_or_opera(interaction.user)
 
     if not (is_middle or is_admin):
         await interaction.response.send_message(
@@ -4490,7 +4799,7 @@ async def cobrar(interaction: discord.Interaction, valor: float):
 async def mmt(interaction: discord.Interaction):
     role = get_middle_role(interaction.guild)
     is_middle = role in interaction.user.roles if role else False
-    is_admin = interaction.user.guild_permissions.administrator
+    is_admin = is_admin_or_opera(interaction.user)
 
     if not (is_middle or is_admin):
         await interaction.response.send_message(
