@@ -1942,8 +1942,8 @@ def criar_embed_painel_leilao(guild_id=None):
     embed = discord.Embed(
         title="🎯 Solicitação de Leilão",
         description=(
-            "> Clique no botão para solicitar um leilão. Faça um leilão privado para todos os membros do servidor.\n\n"
-            "O canal será criado privadamente para você e para os cargos de leilão configurados."
+            "> Clique no botão para solicitar um leilão. Faça um leilão privado para todos os membros do servidor.\n"
+            "Um membro da nossa equipe irá entrar em contato com você para finalizar o processo de leilão."
         ),
         color=cor_paleta("info")
     )
@@ -1951,8 +1951,8 @@ def criar_embed_painel_leilao(guild_id=None):
         name="Como funciona",
         value=(
             "• Abra uma solicitação de leilão\n"
-            "• Um canal privado será criado para você\n"
-            "• Os cargos configurados em /setcargoleilao poderão ver o pedido"
+            "• O membro da equipe irá anunciar o item que você quer leiloar nos canais de leilão\n"
+            "• Valor para abrir o leilão R$ 5,00"
         ),
         inline=False
     )
