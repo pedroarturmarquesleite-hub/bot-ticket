@@ -899,6 +899,9 @@ def init_settings_db():
         if "leilao_role_ids" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN leilao_role_ids TEXT")
             cols.append("leilao_role_ids")
+        if "leilao_category_id" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN leilao_category_id INTEGER")
+            cols.append("leilao_category_id")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS guild_taxa (
@@ -1257,6 +1260,7 @@ def _set_guild_setting(guild_id, column, value):
         "sales_log_channel_id",
         "leilao_panel_channel_id",
         "leilao_role_ids",
+        "leilao_category_id",
     }:
         return
     with sqlite_connect() as conn:
@@ -1497,6 +1501,14 @@ def get_leilao_roles(guild):
     role_ids = get_leilao_role_ids(guild.id)
     roles = [guild.get_role(role_id) for role_id in role_ids if role_id is not None]
     return [role for role in roles if role is not None]
+
+
+def set_leilao_category_id(guild_id, category_id):
+    _set_guild_setting(guild_id, "leilao_category_id", _id_int(category_id))
+
+
+def get_leilao_category_id(guild_id):
+    return _id_int(_get_guild_setting(guild_id, "leilao_category_id"))
 
 
 def set_leilao_panel_channel_id(guild_id, channel_id):
@@ -2433,7 +2445,7 @@ class botd(discord.Client):
         for role in get_leilao_roles(interaction.guild):
             overwrites[role] = discord.PermissionOverwrite(view_channel=True)
 
-        categoria = await self.obter_ou_criar_categoria_middle(interaction.guild)
+        categoria = await self.obter_ou_criar_categoria_leilao(interaction.guild)
         try:
             canal = await interaction.guild.create_text_channel(
                 name=ticket_name,
@@ -4044,14 +4056,14 @@ class TicketView(discord.ui.View):
                     embed=embed,
                     view=link_view,
                     ephemeral=True,
-                    delete_after=15
+                    delete_after=10
                 )
             else:
                 await interaction.followup.send(
                     embed=embed,
                     view=link_view,
                     ephemeral=True,
-                    delete_after=15
+                    delete_after=10
                 )
             return
         except Exception:
@@ -4172,6 +4184,20 @@ class TicketView(discord.ui.View):
                 return categoria_cfg
 
         nome_categoria = "middle man"
+        for categoria in guild.categories:
+            if categoria.name.strip().lower() == nome_categoria:
+                return categoria
+
+        return await guild.create_category(nome_categoria)
+
+    async def obter_ou_criar_categoria_leilao(self, guild):
+        category_id = get_leilao_category_id(guild.id)
+        if category_id is not None:
+            categoria_cfg = guild.get_channel(category_id)
+            if isinstance(categoria_cfg, discord.CategoryChannel):
+                return categoria_cfg
+
+        nome_categoria = "leilao"
         for categoria in guild.categories:
             if categoria.name.strip().lower() == nome_categoria:
                 return categoria
@@ -4545,6 +4571,22 @@ async def setcmiddle(interaction: discord.Interaction, categoria: discord.Catego
     )
 
 
+@bot.tree.command(name="setcategorialeilao", description="Define a categoria onde os tickets de leilão serão criados")
+async def setcategorialeilao(interaction: discord.Interaction, categoria: discord.CategoryChannel):
+    if not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True, delete_after=5
+        )
+        return
+
+    set_leilao_category_id(interaction.guild.id, categoria.id)
+    await interaction.response.send_message(
+        f"✅ Categoria de tickets de leilão configurada para **{categoria.name}**.",
+        ephemeral=True, delete_after=5
+    )
+
+
 @bot.tree.command(name="setnvl", description="Configura cargo de nível por valor gasto")
 @app_commands.describe(
     cargo="Cargo que será concedido no nível",
@@ -4688,10 +4730,11 @@ async def helpb(interaction: discord.Interaction):
             "`/setpainel` — Define o canal fixo do painel. *(Apenas Admin)*\n"
             "`/setleilao` — Define o canal fixo do painel de leilões. *(Apenas Admin)*\n"
             "`/setcargoleilao` — Adiciona o cargo que pode ver tickets de leilão. *(Apenas Admin)*\n"
+            "`/setcategorialeilao` — Define a categoria onde tickets de leilão serão criados. *(Apenas Admin)*\n"
             "`/setimgp` — Define a imagem do painel via URL. *(Apenas Admin)*\n"
             "`/setaceite` — Define o canal de aceite dos MM. *(Apenas Admin)*\n"
             "`/setrolemiddle` — Define o cargo de Middle Man. *(Apenas Admin)*\n"
-            "`/setcmiddle` — Define a categoria dos tickets. *(Apenas Admin)*\n"
+            "`/setcmiddle` — Define a categoria dos tickets Middle. *(Apenas Admin)*\n"
             "`/setlogs` — Define o canal de logs públicos do bot. *(Apenas Admin)*\n"
             "`/setlogadmin` — Define o canal de logs administrativos/transcrição. *(Apenas Admin)*\n"
             "`/settaxa` — Configura as faixas da taxa do middle. *(Apenas Admin)*\n"
