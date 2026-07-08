@@ -2245,6 +2245,31 @@ class botd(discord.Client):
                 return alvo
         return None
 
+    async def _enviar_confirmacao_abertura(self, interaction, canal, descricao):
+        ticket_view = TicketView()
+        return await ticket_view._enviar_confirmacao_abertura(interaction, canal, descricao)
+
+    async def _avisar_middles_no_canal(self, canal, comprador=None, vendedor=None, ticket_kind="pix"):
+        ticket_view = TicketView()
+        return await ticket_view._avisar_middles_no_canal(
+            canal,
+            comprador,
+            vendedor,
+            ticket_kind=ticket_kind
+        )
+
+    def proximo_numero_ticket_pix(self, guild):
+        return TicketView().proximo_numero_ticket_pix(guild)
+
+    def proximo_nome_ticket(self, guild, prefixo):
+        return TicketView().proximo_nome_ticket(guild, prefixo)
+
+    def contar_tickets_abertos_por_criador(self, guild, user_id):
+        return TicketView().contar_tickets_abertos_por_criador(guild, user_id)
+
+    async def obter_ou_criar_categoria_middle(self, guild):
+        return await TicketView().obter_ou_criar_categoria_middle(guild)
+
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
         if not aceite_canal_id:
