@@ -2282,6 +2282,9 @@ class botd(discord.Client):
     async def obter_ou_criar_categoria_middle(self, guild):
         return await TicketView().obter_ou_criar_categoria_middle(guild)
 
+    async def obter_ou_criar_categoria_leilao(self, guild):
+        return await TicketView().obter_ou_criar_categoria_leilao(guild)
+
     async def _avisar_aceite_pix_brainrot(self, canal, comprador, vendedor):
         aceite_canal_id = get_aceite_canal_id(canal.guild.id)
         if not aceite_canal_id:
@@ -4062,8 +4065,7 @@ class TicketView(discord.ui.View):
                 await interaction.followup.send(
                     embed=embed,
                     view=link_view,
-                    ephemeral=True,
-                    delete_after=10
+                    ephemeral=True
                 )
             return
         except Exception:
