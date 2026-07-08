@@ -2358,6 +2358,112 @@ class botd(discord.Client):
             await self._iniciar_fluxo_pix_brainrot(canal, comprador, vendedor, reiniciado=True)
             return
 
+    async def _iniciar_fluxo_pix_brainrot(self, canal, comprador, vendedor, reiniciado=False):
+        iniciar_negociacao_ticket(canal.id, comprador, vendedor)
+        estado = _estado_negociacao(canal.id)
+
+        if estado and estado.get("etapa") == "finalizado":
+            return
+
+        if estado:
+            estado["etapa"] = "coleta_dados"
+            estado["confirm_msg_id"] = None
+
+        prefixo = "🔄 Bot reiniciado. " if reiniciado else ""
+        view_dados = NegociacaoDadosView(canal, comprador, vendedor)
+        msg_dados = await enviar_fluxo(
+            canal,
+            (
+                f"{prefixo}{comprador.mention} **informe o valor da negociação.**\n"
+                f"{vendedor.mention} **informe qual item será negociado.**"
+            ),
+            view=view_dados,
+            cor=cor_paleta("aviso")
+        )
+        view_dados.message = msg_dados
+
+    async def criar_ticket_leilao(self, interaction):
+        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
+        ticket_name = self.proximo_nome_ticket(interaction.guild, "leilao-so")
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True)
+        }
+
+        for role in get_leilao_roles(interaction.guild):
+            overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+
+        categoria = await self.obter_ou_criar_categoria_middle(interaction.guild)
+        try:
+            canal = await interaction.guild.create_text_channel(
+                name=ticket_name,
+                overwrites=overwrites,
+                category=categoria
+            )
+        except discord.Forbidden:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+        except Exception:
+            logger.exception("Falha ao criar ticket de leilão para guild=%s user=%s", interaction.guild.id, interaction.user.id)
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
+                    ephemeral=True, delete_after=5
+                )
+            else:
+                await interaction.response.send_message(
+                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
+                    ephemeral=True, delete_after=5
+                )
+            return
+
+        salvar_tipo_ticket(canal.id, "leilao")
+        salvar_criador_ticket(canal.id, interaction.user.id)
+
+        descricao = (
+            f"👋 {interaction.user.mention} seu ticket de leilão foi aberto com sucesso!\n\n"
+            "Este canal é privado para você e para os cargos configurados em /setcargoleilao."
+        )
+        if not get_leilao_roles(interaction.guild):
+            descricao += "\n\n⚠️ Nenhum cargo de leilão está configurado. Use `/setcargoleilao` para adicionar cargos que possam ver este ticket."
+
+        await enviar_fluxo(
+            canal,
+            descricao,
+            cor=cor_paleta("sucesso"),
+            view=LeilaoTicketView(canal)
+        )
+
+        await self._enviar_confirmacao_abertura(
+            interaction,
+            canal,
+            f"✅ | {interaction.user.mention}, seu ticket de leilão foi aberto!"
+        )
+
     async def on_ready(self):
         logger.info("Bot %s ON", self.user)
         if self._daily_ranking_task is None or self._daily_ranking_task.done():
@@ -4197,88 +4303,6 @@ class TicketView(discord.ui.View):
 
     async def criar_ticket_middleman_cross(self, interaction):
         await self.criar_ticket_middleman(interaction, ticket_kind="cross_trade")
-
-    async def criar_ticket_leilao(self, interaction):
-        if self.contar_tickets_abertos_por_criador(interaction.guild, interaction.user.id) >= 2:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=5
-                )
-            else:
-                await interaction.response.send_message(
-                    "Você já tem 2 tickets abertos. Feche um ticket antes de abrir outro.",
-                    ephemeral=True, delete_after=5
-                )
-            return
-
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
-        ticket_name = self.proximo_nome_ticket(interaction.guild, "leilao-so")
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True)
-        }
-
-        for role in get_leilao_roles(interaction.guild):
-            overwrites[role] = discord.PermissionOverwrite(view_channel=True)
-
-        categoria = await self.obter_ou_criar_categoria_middle(interaction.guild)
-        try:
-            canal = await interaction.guild.create_text_channel(
-                name=ticket_name,
-                overwrites=overwrites,
-                category=categoria
-            )
-        except discord.Forbidden:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
-                    ephemeral=True, delete_after=5
-                )
-            else:
-                await interaction.response.send_message(
-                    "Não tenho permissão para criar o ticket de leilão. Verifique se o bot tem permissão de Gerenciar Canais.",
-                    ephemeral=True, delete_after=5
-                )
-            return
-        except Exception:
-            logger.exception("Falha ao criar ticket de leilão para guild=%s user=%s", interaction.guild.id, interaction.user.id)
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
-                    ephemeral=True, delete_after=5
-                )
-            else:
-                await interaction.response.send_message(
-                    "Ocorreu um erro ao criar o ticket de leilão. Tente novamente mais tarde.",
-                    ephemeral=True, delete_after=5
-                )
-            return
-
-        salvar_tipo_ticket(canal.id, "leilao")
-        salvar_criador_ticket(canal.id, interaction.user.id)
-
-        descricao = (
-            f"👋 {interaction.user.mention} seu ticket de leilão foi aberto com sucesso!\n\n"
-            "Este canal é privado para você e para os cargos configurados em /setcargoleilao."
-        )
-        if not get_leilao_roles(interaction.guild):
-            descricao += "\n\n⚠️ Nenhum cargo de leilão está configurado. Use `/setcargoleilao` para adicionar cargos que possam ver este ticket."
-
-        await enviar_fluxo(
-            canal,
-            descricao,
-            cor=cor_paleta("sucesso"),
-            view=LeilaoTicketView(canal)
-        )
-
-        await self._enviar_confirmacao_abertura(
-            interaction,
-            canal,
-            f"✅ | {interaction.user.mention}, seu ticket de leilão foi aberto!"
-        )
 
 
 class EscolhaTipoTicketView(discord.ui.View):
