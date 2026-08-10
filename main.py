@@ -225,6 +225,20 @@ def is_admin_or_opera(user: discord.Member | discord.User) -> bool:
     return False
 
 
+def motivo_cargo_nao_gerenciavel(guild: discord.Guild, cargo: discord.Role) -> str | None:
+    if cargo.is_default() or cargo.managed:
+        return "Escolha um cargo comum, que não seja @everyone nem gerenciado por integração."
+
+    bot_member = guild.me or guild.get_member(bot.user.id if bot.user else 0)
+    if bot_member is None or not bot_member.guild_permissions.manage_roles or cargo >= bot_member.top_role:
+        return (
+            "Não consigo gerenciar esse cargo. Dê a permissão **Gerenciar Cargos** ao bot "
+            "e deixe o cargo do bot acima dele."
+        )
+
+    return None
+
+
 def chave_emoji_reacao(emoji) -> str | None:
     """Gera uma chave estável para emojis Unicode e emojis personalizados."""
     emoji_id = getattr(emoji, "id", None)
@@ -894,6 +908,7 @@ def init_settings_db():
                 logs_channel_id INTEGER,
                 log_admin_channel_id INTEGER,
                 middle_role_id INTEGER,
+                member_role_id INTEGER,
                 middle_category_id INTEGER,
                 sales_role_id INTEGER,
                 sales_role_ids TEXT,
@@ -909,6 +924,9 @@ def init_settings_db():
         if "log_admin_channel_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN log_admin_channel_id INTEGER")
             cols.append("log_admin_channel_id")
+        if "member_role_id" not in cols:
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN member_role_id INTEGER")
+            cols.append("member_role_id")
         if "sales_role_id" not in cols:
             conn.execute("ALTER TABLE guild_settings ADD COLUMN sales_role_id INTEGER")
             cols.append("sales_role_id")
@@ -1289,6 +1307,7 @@ def _set_guild_setting(guild_id, column, value):
         "logs_channel_id",
         "log_admin_channel_id",
         "middle_role_id",
+        "member_role_id",
         "middle_category_id",
         "sales_role_id",
         "sales_role_ids",
@@ -1382,6 +1401,25 @@ def set_middle_role_id(guild_id, role_id):
 
 def get_middle_role_id(guild_id):
     return _id_int(_get_guild_setting(guild_id, "middle_role_id"))
+
+
+def set_member_role_id(guild_id, role_id):
+    _set_guild_setting(guild_id, "member_role_id", _id_int(role_id))
+
+
+def get_member_role_id(guild_id):
+    return _id_int(_get_guild_setting(guild_id, "member_role_id"))
+
+
+def get_member_role(guild):
+    if guild is None:
+        return None
+    role_id = get_member_role_id(guild.id)
+    if role_id is not None:
+        role = guild.get_role(role_id)
+        if role is not None:
+            return role
+    return None
 
 
 def get_middle_role(guild):
@@ -2124,6 +2162,31 @@ class botd(discord.Client):
     async def setup_hook(self):
         self.tree.on_error = self.on_app_command_error
         await self.tree.sync()
+
+    async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            return
+
+        cargo = get_member_role(member.guild)
+        if cargo is None:
+            return
+
+        try:
+            await member.add_roles(cargo, reason="Cargo automatico de membro ao entrar")
+        except discord.Forbidden:
+            logger.warning(
+                "Sem permissao para adicionar cargo automatico guild_id=%s user_id=%s role_id=%s",
+                member.guild.id,
+                member.id,
+                cargo.id,
+            )
+        except discord.HTTPException:
+            logger.exception(
+                "Falha ao adicionar cargo automatico guild_id=%s user_id=%s role_id=%s",
+                member.guild.id,
+                member.id,
+                cargo.id,
+            )
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         logger.exception("[app_command_error] %s: %s", type(error).__name__, error)
@@ -4716,6 +4779,102 @@ async def setrolemiddle(interaction: discord.Interaction, cargo: discord.Role):
     )
 
 
+@bot.tree.command(name="darcargoaoentrar", description="Define o cargo dado automaticamente para novos membros")
+async def darcargoaoentrar(interaction: discord.Interaction, cargo: discord.Role):
+    if interaction.guild is None or not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True,
+            delete_after=5,
+        )
+        return
+
+    erro_cargo = motivo_cargo_nao_gerenciavel(interaction.guild, cargo)
+    if erro_cargo:
+        await interaction.response.send_message(erro_cargo, ephemeral=True, delete_after=10)
+        return
+
+    set_member_role_id(interaction.guild.id, cargo.id)
+    await interaction.response.send_message(
+        f"✅ Cargo automático de entrada configurado para {cargo.mention}.",
+        ephemeral=True,
+        delete_after=5,
+    )
+
+
+@bot.tree.command(name="darcargoemtodos", description="Adiciona um cargo em todos os membros atuais do servidor")
+async def darcargoemtodos(interaction: discord.Interaction, cargo: discord.Role):
+    if interaction.guild is None or not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message(
+            "Apenas administradores podem usar este comando.",
+            ephemeral=True,
+            delete_after=5,
+        )
+        return
+
+    erro_cargo = motivo_cargo_nao_gerenciavel(interaction.guild, cargo)
+    if erro_cargo:
+        await interaction.response.send_message(erro_cargo, ephemeral=True, delete_after=10)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    adicionados = 0
+    ja_tinha = 0
+    ignorados_bots = 0
+    falhas = 0
+
+    try:
+        async for membro in interaction.guild.fetch_members(limit=None):
+            if membro.bot:
+                ignorados_bots += 1
+                continue
+            if cargo in membro.roles:
+                ja_tinha += 1
+                continue
+
+            try:
+                await membro.add_roles(cargo, reason=f"Comando /darcargoemtodos usado por {interaction.user}")
+                adicionados += 1
+            except discord.Forbidden:
+                falhas += 1
+            except discord.HTTPException:
+                falhas += 1
+                logger.exception(
+                    "Falha ao adicionar cargo em massa guild_id=%s user_id=%s role_id=%s",
+                    interaction.guild.id,
+                    membro.id,
+                    cargo.id,
+                )
+
+            if (adicionados + ja_tinha + falhas) % 25 == 0:
+                await asyncio.sleep(0)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "Não consegui listar os membros do servidor. Verifique se o bot tem permissão e se o intent de membros está ativado.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException:
+        logger.exception("Falha ao listar membros para cargo em massa guild_id=%s", interaction.guild.id)
+        await interaction.followup.send(
+            "Não consegui listar os membros do servidor agora. Tente novamente em alguns minutos.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        (
+            f"✅ Finalizado para {cargo.mention}.\n"
+            f"Adicionados: **{adicionados}**\n"
+            f"Já tinham o cargo: **{ja_tinha}**\n"
+            f"Ignorados por serem bots: **{ignorados_bots}**\n"
+            f"Falhas: **{falhas}**"
+        ),
+        ephemeral=True,
+    )
+
+
 @bot.tree.command(name="setcargoleilao", description="Adiciona um cargo que pode ver tickets de leilão")
 async def setcargoleilao(interaction: discord.Interaction, cargo: discord.Role):
     if not is_admin_or_opera(interaction.user):
@@ -4914,6 +5073,8 @@ async def helpb(interaction: discord.Interaction):
             "`/setimgp` — Define a imagem do painel via URL. *(Apenas Admin)*\n"
             "`/setaceite` — Define o canal de aceite dos MM. *(Apenas Admin)*\n"
             "`/setrolemiddle` — Define o cargo de Middle Man. *(Apenas Admin)*\n"
+            "`/darcargoaoentrar` — Define cargo automático para novos membros. *(Apenas Admin)*\n"
+            "`/darcargoemtodos` — Dá um cargo para todos os membros atuais. *(Apenas Admin)*\n"
             "`/setcmiddle` — Define a categoria dos tickets Middle. *(Apenas Admin)*\n"
             "`/setlogs` — Define o canal de logs públicos do bot. *(Apenas Admin)*\n"
             "`/setlogadmin` — Define o canal de logs administrativos/transcrição. *(Apenas Admin)*\n"
