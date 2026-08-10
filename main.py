@@ -1,4 +1,4 @@
-﻿import discord
+import discord
 from discord import app_commands
 from payments.pix import (
     set_pix,
@@ -223,6 +223,30 @@ def is_admin_or_opera(user: discord.Member | discord.User) -> bool:
     if isinstance(user, discord.Member) and user.guild_permissions.administrator:
         return True
     return False
+
+
+def chave_emoji_reacao(emoji) -> str | None:
+    """Gera uma chave estável para emojis Unicode e emojis personalizados."""
+    emoji_id = getattr(emoji, "id", None)
+    if emoji_id:
+        return f"custom:{emoji_id}"
+
+    nome = getattr(emoji, "name", None)
+    if nome:
+        return f"unicode:{nome}"
+    return None
+
+
+def obter_cargo_reacao(guild_id: int, message_id: int, emoji_key: str) -> int | None:
+    with sqlite_connect() as conn:
+        row = conn.execute(
+            """
+            SELECT role_id FROM reaction_roles
+            WHERE guild_id = ? AND message_id = ? AND emoji_key = ?
+            """,
+            (guild_id, message_id, emoji_key),
+        ).fetchone()
+    return _id_int(row[0]) if row else None
 
 
 def embed_fluxo(descricao: str, titulo: str | None = None, cor: discord.Color | None = None) -> discord.Embed:
@@ -959,6 +983,17 @@ def init_settings_db():
                 maior_transacao REAL NOT NULL DEFAULT 0,
                 updated_ts INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (guild_id, user_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reaction_roles (
+                guild_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                emoji_key TEXT NOT NULL,
+                role_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, message_id, emoji_key)
             )
             """
         )
@@ -2108,6 +2143,47 @@ class botd(discord.Client):
                 await interaction.response.send_message(mensagem, ephemeral=True, delete_after=5)
         except Exception:
             pass
+
+    async def _processar_cargo_reacao(self, payload: discord.RawReactionActionEvent, adicionar: bool):
+        if payload.guild_id is None or self.user is None or payload.user_id == self.user.id:
+            return
+
+        emoji_key = chave_emoji_reacao(payload.emoji)
+        if emoji_key is None:
+            return
+        cargo_id = obter_cargo_reacao(payload.guild_id, payload.message_id, emoji_key)
+        if cargo_id is None:
+            return
+
+        guild = self.get_guild(payload.guild_id)
+        cargo = guild.get_role(cargo_id) if guild else None
+        if guild is None or cargo is None:
+            return
+
+        membro = payload.member if adicionar else guild.get_member(payload.user_id)
+        if membro is None:
+            try:
+                membro = await guild.fetch_member(payload.user_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                return
+        if membro.bot:
+            return
+
+        try:
+            if adicionar and cargo not in membro.roles:
+                await membro.add_roles(cargo, reason="Cargo por reação")
+            elif not adicionar and cargo in membro.roles:
+                await membro.remove_roles(cargo, reason="Reação removida do cargo por reação")
+        except discord.Forbidden:
+            logger.warning("Sem permissão para alterar cargo por reação guild_id=%s role_id=%s", guild.id, cargo.id)
+        except discord.HTTPException:
+            logger.exception("Falha ao alterar cargo por reação guild_id=%s role_id=%s", guild.id, cargo.id)
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        await self._processar_cargo_reacao(payload, adicionar=True)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        await self._processar_cargo_reacao(payload, adicionar=False)
 
     async def _enviar_ranking_diario_no_log_admin(self, guild: discord.Guild, data_ref):
         if guild is None:
@@ -4365,6 +4441,108 @@ class EscolhaTipoTicketView(discord.ui.View):
 
 
 bot = botd()
+
+
+@bot.tree.command(name="cargoreacao_adicionar", description="Vincula um emoji de uma mensagem a um cargo")
+@app_commands.describe(
+    canal="Canal onde está a mensagem",
+    mensagem_id="ID numérico da mensagem",
+    emoji="Emoji que dará o cargo, por exemplo: ✅",
+    cargo="Cargo que será entregue",
+)
+async def cargoreacao_adicionar(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel,
+    mensagem_id: str,
+    emoji: str,
+    cargo: discord.Role,
+):
+    if interaction.guild is None or not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message("Apenas administradores podem configurar cargos por reação.", ephemeral=True)
+        return
+
+    try:
+        message_id_int = int(mensagem_id.strip())
+    except ValueError:
+        await interaction.response.send_message("Informe somente o ID numérico da mensagem.", ephemeral=True)
+        return
+
+    if cargo.is_default() or cargo.managed:
+        await interaction.response.send_message("Escolha um cargo comum, que não seja @everyone nem gerenciado por integração.", ephemeral=True)
+        return
+
+    bot_member = interaction.guild.me or interaction.guild.get_member(bot.user.id if bot.user else 0)
+    if bot_member is None or not bot_member.guild_permissions.manage_roles or cargo >= bot_member.top_role:
+        await interaction.response.send_message(
+            "Não consigo gerenciar esse cargo. Dê a permissão **Gerenciar Cargos** ao bot e deixe o cargo do bot acima dele.",
+            ephemeral=True,
+        )
+        return
+
+    parsed_emoji = discord.PartialEmoji.from_str(emoji.strip())
+    emoji_key = chave_emoji_reacao(parsed_emoji)
+    if emoji_key is None:
+        await interaction.response.send_message("Informe um emoji válido, como `✅` ou `<:nome:id>`.", ephemeral=True)
+        return
+
+    try:
+        mensagem = await canal.fetch_message(message_id_int)
+        await mensagem.add_reaction(parsed_emoji)
+    except discord.NotFound:
+        await interaction.response.send_message("Não encontrei essa mensagem nesse canal.", ephemeral=True)
+        return
+    except discord.Forbidden:
+        await interaction.response.send_message("Não tenho permissão para ver a mensagem ou adicionar reações nesse canal.", ephemeral=True)
+        return
+    except discord.HTTPException:
+        await interaction.response.send_message("Não consegui adicionar esse emoji à mensagem. Confira se o emoji é válido.", ephemeral=True)
+        return
+
+    with sqlite_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO reaction_roles (guild_id, message_id, emoji_key, role_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, message_id, emoji_key) DO UPDATE SET role_id=excluded.role_id
+            """,
+            (interaction.guild.id, message_id_int, emoji_key, cargo.id),
+        )
+        conn.commit()
+
+    await interaction.response.send_message(
+        f"Pronto: quem reagir com {parsed_emoji} na mensagem `{message_id_int}` receberá {cargo.mention}.",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name="cargoreacao_remover", description="Remove um vínculo de cargo por reação")
+@app_commands.describe(mensagem_id="ID da mensagem configurada", emoji="Emoji que será desvinculado")
+async def cargoreacao_remover(interaction: discord.Interaction, mensagem_id: str, emoji: str):
+    if interaction.guild is None or not is_admin_or_opera(interaction.user):
+        await interaction.response.send_message("Apenas administradores podem alterar cargos por reação.", ephemeral=True)
+        return
+
+    try:
+        message_id_int = int(mensagem_id.strip())
+    except ValueError:
+        await interaction.response.send_message("Informe somente o ID numérico da mensagem.", ephemeral=True)
+        return
+
+    emoji_key = chave_emoji_reacao(discord.PartialEmoji.from_str(emoji.strip()))
+    if emoji_key is None:
+        await interaction.response.send_message("Informe um emoji válido.", ephemeral=True)
+        return
+
+    with sqlite_connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM reaction_roles WHERE guild_id = ? AND message_id = ? AND emoji_key = ?",
+            (interaction.guild.id, message_id_int, emoji_key),
+        )
+        conn.commit()
+
+    texto = "Vínculo removido." if cursor.rowcount else "Não encontrei um vínculo com essa mensagem e emoji."
+    await interaction.response.send_message(texto, ephemeral=True)
+
 
 @bot.tree.command(name="setpix", description="Define sua chave Pix e nome")
 async def setpix(interaction: discord.Interaction, chave: str, nome: str):
