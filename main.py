@@ -33,6 +33,7 @@ ticket_loading_msg = {}
 ticket_type = {}
 ticket_negociacao = {}
 ticket_operation_locks = {}
+role_bulk_tasks = {}
 APP_DATA_DIR = os.getenv("APP_DATA_DIR", os.getcwd())
 os.makedirs(APP_DATA_DIR, exist_ok=True)
 PANEL_CONFIG_FILE = os.path.join(APP_DATA_DIR, "panel_config.json")
@@ -4817,60 +4818,113 @@ async def darcargoemtodos(interaction: discord.Interaction, cargo: discord.Role)
         await interaction.response.send_message(erro_cargo, ephemeral=True, delete_after=10)
         return
 
+    tarefa_atual = role_bulk_tasks.get(interaction.guild.id)
+    if tarefa_atual and not tarefa_atual.done():
+        await interaction.response.send_message(
+            "Já existe uma distribuição de cargo em andamento nesse servidor. Aguarde ela finalizar antes de iniciar outra.",
+            ephemeral=True,
+            delete_after=10,
+        )
+        return
+
     await interaction.response.defer(ephemeral=True, thinking=True)
 
-    adicionados = 0
-    ja_tinha = 0
-    ignorados_bots = 0
-    falhas = 0
-
     try:
-        async for membro in interaction.guild.fetch_members(limit=None):
-            if membro.bot:
-                ignorados_bots += 1
-                continue
-            if cargo in membro.roles:
-                ja_tinha += 1
-                continue
-
-            try:
-                await membro.add_roles(cargo, reason=f"Comando /darcargoemtodos usado por {interaction.user}")
-                adicionados += 1
-            except discord.Forbidden:
-                falhas += 1
-            except discord.HTTPException:
-                falhas += 1
-                logger.exception(
-                    "Falha ao adicionar cargo em massa guild_id=%s user_id=%s role_id=%s",
-                    interaction.guild.id,
-                    membro.id,
-                    cargo.id,
-                )
-
-            if (adicionados + ja_tinha + falhas) % 25 == 0:
-                await asyncio.sleep(0)
+        progresso_msg = await interaction.channel.send(
+            f"⏳ Iniciando distribuição de {cargo.mention} para os membros atuais..."
+        )
     except discord.Forbidden:
         await interaction.followup.send(
-            "Não consegui listar os membros do servidor. Verifique se o bot tem permissão e se o intent de membros está ativado.",
-            ephemeral=True,
-        )
-        return
-    except discord.HTTPException:
-        logger.exception("Falha ao listar membros para cargo em massa guild_id=%s", interaction.guild.id)
-        await interaction.followup.send(
-            "Não consegui listar os membros do servidor agora. Tente novamente em alguns minutos.",
+            "Não tenho permissão para enviar a mensagem de progresso nesse canal.",
             ephemeral=True,
         )
         return
 
+    async def executar_distribuicao_cargo():
+        adicionados = 0
+        ja_tinha = 0
+        ignorados_bots = 0
+        falhas = 0
+        verificados = 0
+        ultimo_update = time.monotonic()
+
+        async def atualizar_progresso(finalizado=False, erro=None):
+            status = "✅ Finalizado" if finalizado else "⏳ Em andamento"
+            if erro:
+                status = "⚠️ Interrompido"
+            texto = (
+                f"{status}: distribuição de {cargo.mention}\n"
+                f"Verificados: **{verificados}**\n"
+                f"Adicionados: **{adicionados}**\n"
+                f"Já tinham o cargo: **{ja_tinha}**\n"
+                f"Ignorados por serem bots: **{ignorados_bots}**\n"
+                f"Falhas: **{falhas}**"
+            )
+            if erro:
+                texto += f"\n\n{erro}"
+            try:
+                await progresso_msg.edit(content=texto)
+            except discord.HTTPException:
+                pass
+
+        try:
+            async for membro in interaction.guild.fetch_members(limit=None):
+                verificados += 1
+                if membro.bot:
+                    ignorados_bots += 1
+                elif cargo in membro.roles:
+                    ja_tinha += 1
+                else:
+                    try:
+                        await membro.add_roles(cargo, reason=f"Comando /darcargoemtodos usado por {interaction.user}")
+                        adicionados += 1
+                        await asyncio.sleep(0.25)
+                    except discord.Forbidden:
+                        falhas += 1
+                    except discord.HTTPException:
+                        falhas += 1
+                        logger.exception(
+                            "Falha ao adicionar cargo em massa guild_id=%s user_id=%s role_id=%s",
+                            interaction.guild.id,
+                            membro.id,
+                            cargo.id,
+                        )
+                        await asyncio.sleep(1)
+
+                agora = time.monotonic()
+                if verificados % 100 == 0 or agora - ultimo_update >= 30:
+                    await atualizar_progresso()
+                    ultimo_update = agora
+                    logger.info(
+                        "Progresso /darcargoemtodos guild_id=%s role_id=%s verificados=%s adicionados=%s ja_tinha=%s bots=%s falhas=%s",
+                        interaction.guild.id,
+                        cargo.id,
+                        verificados,
+                        adicionados,
+                        ja_tinha,
+                        ignorados_bots,
+                        falhas,
+                    )
+                    await asyncio.sleep(0)
+        except discord.Forbidden:
+            await atualizar_progresso(
+                erro="Não consegui listar os membros. Verifique permissões e o **Server Members Intent** no Developer Portal."
+            )
+            return
+        except discord.HTTPException:
+            logger.exception("Falha ao listar membros para cargo em massa guild_id=%s", interaction.guild.id)
+            await atualizar_progresso(erro="Não consegui listar os membros agora. Tente novamente em alguns minutos.")
+            return
+        finally:
+            role_bulk_tasks.pop(interaction.guild.id, None)
+
+        await atualizar_progresso(finalizado=True)
+
+    tarefa = asyncio.create_task(executar_distribuicao_cargo())
+    role_bulk_tasks[interaction.guild.id] = tarefa
+
     await interaction.followup.send(
-        (
-            f"✅ Finalizado para {cargo.mention}.\n"
-            f"Adicionados: **{adicionados}**\n"
-            f"Já tinham o cargo: **{ja_tinha}**\n"
-            f"Ignorados por serem bots: **{ignorados_bots}**\n"
-            f"Falhas: **{falhas}**"
-        ),
+        f"✅ Distribuição iniciada. Vou atualizar o progresso aqui: {progresso_msg.jump_url}",
         ephemeral=True,
     )
 
